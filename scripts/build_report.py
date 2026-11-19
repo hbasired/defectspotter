@@ -78,7 +78,14 @@ def markdown_table(md: str) -> str:
 
 
 def main() -> None:
-    store = ReportStore(ROOT)
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", default=str(ROOT), help="project root containing reports/ and artifacts/")
+    parser.add_argument("--out", default=None)
+    args = parser.parse_args()
+    root = Path(args.root)
+    store = ReportStore(root)
     metrics = store.csv("metrics.csv")
     categories = list(metrics.category.unique()) if not metrics.empty else []
     comp, stats = store.csv("dataset_composition.csv"), store.csv("image_stats.csv")
@@ -86,7 +93,7 @@ def main() -> None:
     thresholds = store.csv("threshold_comparison.csv")
     import json
 
-    policies = {c: json.loads((ROOT / "artifacts" / c / "calibration.json").read_text())["methods"]["patchcore"]
+    policies = {c: json.loads((root / "artifacts" / c / "calibration.json").read_text())["methods"]["patchcore"]
                 ["policies"]["synthetic_cost"] for c in categories}
     cs = cost_summary(store)
     sections = [
@@ -145,7 +152,7 @@ figure {{ margin:0; }}
 <body><nav>{nav}</nav><main>{body}
 <p class="ds-small">Generated from the run's reports/ folder. MVTec AD images © MVTec Software GmbH, CC BY-NC-SA 4.0 —
 research and teaching only.</p></main></body></html>"""
-    out = ROOT / "reports" / "DefectSpotter_report.html"
+    out = Path(args.out) if args.out else root / "reports" / "DefectSpotter_report.html"
     out.write_text(page, encoding="utf-8")
     print(f"Wrote {out} ({out.stat().st_size / 1024 ** 2:.1f} MB)")
 

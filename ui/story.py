@@ -191,6 +191,13 @@ def results_html(store: ReportStore) -> str:
         table += "</tr>"
     table += "</table>"
     best = metrics.groupby("method").image_auroc.mean().sort_values(ascending=False)
+    if best.get("patchcore", 0) >= best.get("vae", 0):
+        verdict_title = "Feature memory beats reconstruction"
+        verdict_text = ("The VAE reproduces a blurry version of every part, so subtle defects hide inside its own "
+                        "reconstruction error; frozen CNN features keep the local detail PatchCore compares.")
+    else:
+        verdict_title = "Reconstruction is competitive here"
+        verdict_text = "On this run the VAE ranks parts better on average; see the per-product table for where."
     pc_ops = ops[(ops.method == "patchcore") & (ops.policy == "synthetic_cost")] if not ops.empty else pd.DataFrame()
     frr = float(pc_ops.false_reject_rate.mean()) if not pc_ops.empty else float("nan")
     esc = float(pc_ops.escape_rate.mean()) if not pc_ops.empty else float("nan")
@@ -202,9 +209,8 @@ def results_html(store: ReportStore) -> str:
 MVTec test images — none of which were used for training or threshold selection.</p>
 {table}
 <div class="ds-grid3" style="margin-top:12px">
- <div class="ds-card"><h3>Feature memory beats reconstruction</h3><p class="ds-note">Mean image AUROC:
- {' · '.join(f"{METHOD_LABELS[m]} <b>{v:.3f}</b>" for m, v in best.items())}. The VAE reconstructs blurry
- versions of every part, so small defects hide in its own reconstruction error; frozen CNN features keep the detail.</p></div>
+ <div class="ds-card"><h3>{verdict_title}</h3><p class="ds-note">Mean image AUROC:
+ {' · '.join(f"{METHOD_LABELS[m]} <b>{v:.3f}</b>" for m, v in best.items())}. {verdict_text}</p></div>
  <div class="ds-card"><h3>Operating point (PatchCore)</h3><p class="ds-note">At the synthetic-only threshold on the
  operating test split: false-reject rate <b>{_pct(frr)}</b>, escape rate <b>{_pct(esc)}</b>, human review load
  <b>{_pct(rev)}</b> of parts (prevalence-adjusted).</p></div>

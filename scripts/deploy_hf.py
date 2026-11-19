@@ -30,7 +30,7 @@ onnxruntime>=1.18
 plotly>=5.24
 huggingface-hub>=0.25
 spaces
-torch
+torch==2.13.0  # ZeroGPU-supported version (only used by the GPU self-test)
 """
 
 
