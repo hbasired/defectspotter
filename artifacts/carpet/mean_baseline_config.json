@@ -1,0 +1,8 @@
+{
+  "image_size": 224,
+  "alignment": "none",
+  "pre_blur": 1.0,
+  "blur_sigma": 3.0,
+  "std_floor": 4.0,
+  "topk_fraction": 0.01
+}

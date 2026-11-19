@@ -7,7 +7,7 @@ so everything outside the defect stays pixel-identical to the real good part.
 
     pip install -r requirements-diffusion.txt
     python scripts/generate_diffusion_defects.py --data data/mvtec_ad --per-category 8
-    python scripts/train.py --data data/mvtec_ad --stages diffusion calibrate evaluate summary
+    python scripts/train.py --data data/mvtec_ad --stages severity diffusion calibrate evaluate drift summary
 
 Model licences: stable-diffusion-v1-5/stable-diffusion-inpainting (CreativeML OpenRAIL-M),
 latent-consistency/lcm-lora-sdv1-5 (OpenRAIL++).

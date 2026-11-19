@@ -1,0 +1,195 @@
+{
+  "category": "carpet",
+  "costs": {
+    "cost_escape": 400.0,
+    "cost_false_reject": 2.0,
+    "cost_review": 0.3,
+    "defect_prevalence": 0.01,
+    "human_detection_rate": 0.8,
+    "parts_per_day": 20000,
+    "review_capacity": 0.1
+  },
+  "health_reference": {
+    "brightness": {
+      "mean": 90.41941097378731,
+      "p01": 86.27908024787902,
+      "p99": 96.93414672851563,
+      "std": 2.3397837524302125
+    },
+    "contrast": {
+      "mean": 35.40907240907322,
+      "p01": 32.75828637557847,
+      "p99": 40.6099942714227,
+      "std": 1.7158936255417543
+    },
+    "sharpness": {
+      "mean": 3200.936842782157,
+      "p01": 2696.2903466796874,
+      "p99": 4202.97880859375,
+      "std": 329.7453344779807
+    }
+  },
+  "info": {
+    "kind": "texture",
+    "line_context": "Web inspection of continuous textile coming off the loom.",
+    "summary": "Woven carpet texture: holes, cuts, colour spots, metal contamination and loose threads.",
+    "title": "Carpet"
+  },
+  "methods": {
+    "ensemble": {
+      "config": {},
+      "default_policy": "synthetic_cost",
+      "pixel_scale": {
+        "high": 100.0,
+        "low": 0.0,
+        "threshold": 50.0
+      },
+      "policies": {
+        "good_quantile": {
+          "band": 5.0,
+          "threshold": 29.699647142627157
+        },
+        "real_oracle_cost": {
+          "band": 2.5,
+          "threshold": 35.0
+        },
+        "synthetic_cost": {
+          "band": 7.5,
+          "threshold": 36.0
+        }
+      },
+      "score_scale": {
+        "anchor_good": 25.0,
+        "anchor_synthetic": 75.0,
+        "good_median": 25.0,
+        "spread": 50.0,
+        "synthetic_median": 75.0
+      },
+      "synthetic_auroc": 0.9303252551020407,
+      "weight_patchcore": 1.0
+    },
+    "mean": {
+      "config": {
+        "alignment": "none",
+        "blur_sigma": 3.0,
+        "image_size": 224,
+        "pre_blur": 1.0,
+        "std_floor": 4.0,
+        "topk_fraction": 0.01
+      },
+      "default_policy": "synthetic_cost",
+      "pixel_scale": {
+        "high": 2.1064453125,
+        "low": 0.7978515625,
+        "quantile": 0.999,
+        "threshold": 1.4521484375
+      },
+      "policies": {
+        "good_quantile": {
+          "band": 5.0,
+          "threshold": 61.33848591362809
+        },
+        "real_oracle_cost": {
+          "band": 0.0,
+          "threshold": 0.0
+        },
+        "synthetic_cost": {
+          "band": 2.5,
+          "threshold": 30.5
+        }
+      },
+      "score_scale": {
+        "anchor_good": 25.0,
+        "anchor_synthetic": 75.0,
+        "good_median": 1.2439284920692444,
+        "spread": 0.42185797386439094,
+        "synthetic_median": 1.5126084685325623
+      }
+    },
+    "patchcore": {
+      "config": {
+        "backbone": "resnet18",
+        "blur_sigma": 4.0,
+        "coreset_ratio": 0.01,
+        "image_size": 224,
+        "max_bank_mb": 45.0,
+        "projection_dim": 128,
+        "score_mode": "topk",
+        "topk_fraction": 0.05
+      },
+      "default_policy": "synthetic_cost",
+      "pixel_scale": {
+        "high": 2.173828125,
+        "low": 1.154296875,
+        "quantile": 0.999,
+        "threshold": 1.58203125
+      },
+      "policies": {
+        "good_quantile": {
+          "band": 5.0,
+          "threshold": 29.699647142627157
+        },
+        "real_oracle_cost": {
+          "band": 2.5,
+          "threshold": 35.0
+        },
+        "synthetic_cost": {
+          "band": 7.5,
+          "threshold": 36.0
+        }
+      },
+      "score_scale": {
+        "anchor_good": 25.0,
+        "anchor_synthetic": 75.0,
+        "good_median": 1.3837155103683472,
+        "spread": 0.4216410517692566,
+        "synthetic_median": 1.8053565621376038
+      }
+    },
+    "vae": {
+      "config": {
+        "base_channels": 32,
+        "batch_size": 32,
+        "beta": 0.001,
+        "blur_sigma": 2.0,
+        "epochs": 120,
+        "hflip": true,
+        "image_size": 128,
+        "latent_dim": 128,
+        "learning_rate": 0.001,
+        "rot90": true,
+        "ssim_weight": 0.5,
+        "topk_fraction": 0.01
+      },
+      "default_policy": "synthetic_cost",
+      "pixel_scale": {
+        "high": 0.4735107421875,
+        "low": 0.1505126953125,
+        "quantile": 0.999,
+        "threshold": 0.31201171875
+      },
+      "policies": {
+        "good_quantile": {
+          "band": 5.0,
+          "threshold": 70.62922121446069
+        },
+        "real_oracle_cost": {
+          "band": 2.5,
+          "threshold": 29.0
+        },
+        "synthetic_cost": {
+          "band": 2.5,
+          "threshold": 17.0
+        }
+      },
+      "score_scale": {
+        "anchor_good": 25.0,
+        "anchor_synthetic": 75.0,
+        "good_median": 0.23098981380462646,
+        "spread": 0.14848879559813633,
+        "synthetic_median": 0.2432408407330513
+      }
+    }
+  },
+  "threshold_policy_note": "Default = cost-optimal on held-out good + synthetic defects; real_oracle_cost uses labelled defects and is for comparison only."
+}

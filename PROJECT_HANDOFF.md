@@ -63,7 +63,7 @@ authentication / persistent multi-user storage (the review queue lives in the br
 ```
 data (MVTec AD, pinned HF mirror)
   └─ scripts/train.py → defectspotter/pipeline.py (stages)
-       index → eda → synthetic → patchcore → vae → mean → diffusion → calibrate → evaluate → latency → drift → few_shot → examples → summary
+       index → eda → synthetic → patchcore → vae → mean → severity → diffusion → calibrate → evaluate → latency → drift → few_shot → examples → summary
        writes: artifacts/ (deployable models) · reports/ (CSV/JSON/PNG evidence) · examples/ (demo images)
 app.py → ui/app.py (Gradio) → defectspotter/runtime.py (ONNX Runtime + NumPy only, no PyTorch)
 ```
@@ -75,6 +75,7 @@ app.py → ui/app.py (Gradio) → defectspotter/runtime.py (ONNX Runtime + NumPy
 | Hyper-parameters | chosen on held-out good + **synthetic** defects only; objective = 0.4·img AUROC + 0.3·TPR@≤1%FPR + 0.3·pixel AUROC | synthetic AUROC alone saturates at 1.0 and cannot rank configs |
 | VAE | 4-stage conv encoder → 1×1 squeeze → 128-d latent; L1 + 0.5(1−SSIM) + β·KL; ONNX ≈7.4 MB | small, sharper than MSE; no flips for screws (thread handedness) |
 | Baseline | ECC alignment (none/translation/euclidean/affine picked on synthetic data) + per-pixel z-score | transparent classical comparison |
+| Threshold calibration set | held-out good + synthetic defects at **25 / 50 / 100 % severity** (+ diffusion if present) | first run used full-strength synthetics only: screw real defects (median score 36) are far subtler than synthetic ones (75) → 35% escapes; the detection-limit sweep is label-free and mirrors inspection specs |
 | Score scale | 0–100, 25 = median held-out good, 75 = median synthetic defect | label-free, interpretable for operators |
 | Pixel scale | 0 = median good pixel, 50 = 99.9th pct good pixel, 100 = typical synthetic-defect pixel | localised, non-saturating heat maps |
 | Decision | PASS < t−b ≤ CHECK < t+b ≤ REJECT, (t,b) minimise expected cost s.t. CHECK ≤ 10% | mirrors a real line: prevalence 1%, escape 400, false reject 2, CHECK 0.30 (illustrative units) |
@@ -140,7 +141,7 @@ python scripts/train.py --data data/mvtec_ad --work-dir ../defectspotter_work   
 python scripts/train.py --data data/mvtec_ad --stages calibrate evaluate summary         # re-run selected stages
 pip install -r requirements-diffusion.txt
 python scripts/generate_diffusion_defects.py --data data/mvtec_ad --per-category 8 --steps 4 --guidance 1.0
-python scripts/train.py --data data/mvtec_ad --stages diffusion calibrate evaluate summary
+python scripts/train.py --data data/mvtec_ad --stages severity diffusion calibrate evaluate drift summary
 python scripts/build_report.py                                                            # static HTML report
 python scripts/summarize_results.py                                                       # Markdown tables
 ```
@@ -188,7 +189,7 @@ Colab secret.
    Options: texture-specific higher resolution, ResNet-34 / EfficientNet features for textures, or WRN-50 fp16 for carpet only
    (+45 MB). Select with the synthetic-validation objective, never with test labels.
 5. Generate more diffusion defects on a GPU (e.g. 50 per product, more prompts) and re-run
-   `--stages diffusion calibrate evaluate summary`; report whether diffusion closes the synthetic-vs-real threshold gap.
+   `--stages severity diffusion calibrate evaluate drift summary`; report whether diffusion closes the synthetic-vs-real threshold gap.
 6. Test robustness on real phone photos of bottles/screws (domain shift) and document failure modes.
 7. VAE: try a perceptual (feature) loss or a spatial latent; report the VAE vs PatchCore gap per defect type.
 

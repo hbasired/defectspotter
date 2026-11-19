@@ -1,0 +1,195 @@
+{
+  "category": "screw",
+  "costs": {
+    "cost_escape": 400.0,
+    "cost_false_reject": 2.0,
+    "cost_review": 0.3,
+    "defect_prevalence": 0.01,
+    "human_detection_rate": 0.8,
+    "parts_per_day": 20000,
+    "review_capacity": 0.1
+  },
+  "health_reference": {
+    "brightness": {
+      "mean": 183.9405598975718,
+      "p01": 171.27426624298096,
+      "p99": 196.19308037757872,
+      "std": 5.3521925010101805
+    },
+    "contrast": {
+      "mean": 33.518774810666756,
+      "p01": 29.58784049910204,
+      "p99": 37.49161219068043,
+      "std": 1.8793632838886263
+    },
+    "sharpness": {
+      "mean": 88.6250712275505,
+      "p01": 68.08568153381347,
+      "p99": 122.16233596801756,
+      "std": 12.641473890812188
+    }
+  },
+  "info": {
+    "kind": "object",
+    "line_context": "Fastener sorting station, back-lit tray camera.",
+    "summary": "Small metal screw in random orientation: damaged threads, scratched head, chipped tip.",
+    "title": "Screw"
+  },
+  "methods": {
+    "ensemble": {
+      "config": {},
+      "default_policy": "synthetic_cost",
+      "pixel_scale": {
+        "high": 100.0,
+        "low": 0.0,
+        "threshold": 50.0
+      },
+      "policies": {
+        "good_quantile": {
+          "band": 5.0,
+          "threshold": 33.598576153366935
+        },
+        "real_oracle_cost": {
+          "band": 2.5,
+          "threshold": 23.0
+        },
+        "synthetic_cost": {
+          "band": 0.0,
+          "threshold": 39.5
+        }
+      },
+      "score_scale": {
+        "anchor_good": 25.0,
+        "anchor_synthetic": 75.0,
+        "good_median": 25.152140315958825,
+        "spread": 37.03181495043729,
+        "synthetic_median": 62.18395526639611
+      },
+      "synthetic_auroc": 0.9959716796875,
+      "weight_patchcore": 0.7
+    },
+    "mean": {
+      "config": {
+        "alignment": "affine",
+        "blur_sigma": 3.0,
+        "image_size": 224,
+        "pre_blur": 1.0,
+        "std_floor": 4.0,
+        "topk_fraction": 0.01
+      },
+      "default_policy": "synthetic_cost",
+      "pixel_scale": {
+        "high": 8.28271484375,
+        "low": 0.52978515625,
+        "quantile": 0.999,
+        "threshold": 4.40625
+      },
+      "policies": {
+        "good_quantile": {
+          "band": 5.0,
+          "threshold": 57.350485907668386
+        },
+        "real_oracle_cost": {
+          "band": 7.5,
+          "threshold": 10.0
+        },
+        "synthetic_cost": {
+          "band": 5.0,
+          "threshold": 9.5
+        }
+      },
+      "score_scale": {
+        "anchor_good": 25.0,
+        "anchor_synthetic": 75.0,
+        "good_median": 3.4767656326293945,
+        "spread": 2.2290567099539476,
+        "synthetic_median": 3.784294605255127
+      }
+    },
+    "patchcore": {
+      "config": {
+        "backbone": "resnet18",
+        "blur_sigma": 2.0,
+        "coreset_ratio": 0.1,
+        "image_size": 224,
+        "max_bank_mb": 45.0,
+        "projection_dim": 128,
+        "score_mode": "topk",
+        "topk_fraction": 0.01
+      },
+      "default_policy": "synthetic_cost",
+      "pixel_scale": {
+        "high": 2.669921875,
+        "low": 0.93115234375,
+        "quantile": 0.999,
+        "threshold": 1.4580078125
+      },
+      "policies": {
+        "good_quantile": {
+          "band": 5.0,
+          "threshold": 29.703402720965286
+        },
+        "real_oracle_cost": {
+          "band": 0.0,
+          "threshold": 26.5
+        },
+        "synthetic_cost": {
+          "band": 2.5,
+          "threshold": 36.0
+        }
+      },
+      "score_scale": {
+        "anchor_good": 25.0,
+        "anchor_synthetic": 75.0,
+        "good_median": 1.276458978652954,
+        "spread": 1.346113920211792,
+        "synthetic_median": 2.622572898864746
+      }
+    },
+    "vae": {
+      "config": {
+        "base_channels": 32,
+        "batch_size": 32,
+        "beta": 0.001,
+        "blur_sigma": 2.0,
+        "epochs": 120,
+        "hflip": false,
+        "image_size": 128,
+        "latent_dim": 128,
+        "learning_rate": 0.001,
+        "rot90": true,
+        "ssim_weight": 0.5,
+        "topk_fraction": 0.01
+      },
+      "default_policy": "synthetic_cost",
+      "pixel_scale": {
+        "high": 0.674468994140625,
+        "low": 0.017913818359375,
+        "quantile": 0.999,
+        "threshold": 0.34619140625
+      },
+      "policies": {
+        "good_quantile": {
+          "band": 5.0,
+          "threshold": 49.8553532317915
+        },
+        "real_oracle_cost": {
+          "band": 5.0,
+          "threshold": 6.0
+        },
+        "synthetic_cost": {
+          "band": 2.5,
+          "threshold": 18.0
+        }
+      },
+      "score_scale": {
+        "anchor_good": 25.0,
+        "anchor_synthetic": 75.0,
+        "good_median": 0.2770344018936157,
+        "spread": 0.17548710176732282,
+        "synthetic_median": 0.29501159489154816
+      }
+    }
+  },
+  "threshold_policy_note": "Default = cost-optimal on held-out good + synthetic defects; real_oracle_cost uses labelled defects and is for comparison only."
+}

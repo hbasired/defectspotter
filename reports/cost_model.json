@@ -1,0 +1,11 @@
+{
+  "cost_escape": 400.0,
+  "cost_false_reject": 2.0,
+  "cost_review": 0.3,
+  "defect_prevalence": 0.01,
+  "human_detection_rate": 0.8,
+  "manual_100pct_per_1000": 1099.9999999999998,
+  "no_inspection_per_1000": 4000.0,
+  "parts_per_day": 20000,
+  "review_capacity": 0.1
+}

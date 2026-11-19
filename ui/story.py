@@ -134,10 +134,12 @@ def pipeline_html() -> str:
 <div class="ds-grid2" style="margin-top:12px">
  <div class="ds-card"><h3>Synthetic defects choose the threshold</h3>
   <p class="ds-note">Held-out good parts are corrupted with procedural <b>cut-paste</b>, <b>scratch</b> and <b>stain</b>
-  defects (with exact masks) and, optionally, <b>Stable-Diffusion inpainting</b>. With held-out good parts they
-  (1) set the 0–100 score scale (25 = typical good, 75 = typical synthetic defect), (2) tune hyper-parameters and
-  (3) pick the cost-optimal PASS/CHECK/REJECT thresholds — no real defect is used. Real defects are used only to
-  measure how close that threshold is to an oracle chosen with labels.</p></div>
+  defects (with exact masks) and <b>Stable-Diffusion inpainting</b>. Every synthetic defect is also replayed at
+  <b>25% and 50% severity</b> — the "detection limit" a real inspection spec defines — because full-strength synthetic
+  defects are far more conspicuous than real thread damage on screws. With held-out good parts they (1) set the 0–100 score
+  scale (25 = typical good, 75 = typical synthetic defect), (2) tune hyper-parameters and (3) pick the cost-optimal
+  PASS/CHECK/REJECT thresholds — no real defect is used. Real defects only measure how close that threshold is to an
+  oracle chosen with labels.</p></div>
  <div class="ds-card"><h3>Built to mirror a real line</h3>
   <ul class="ds-note">
    <li>Cost model: 1% prevalence, escape ≫ false reject, inspector time per CHECK, review capacity ≤ 10% of parts.</li>

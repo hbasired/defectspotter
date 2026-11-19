@@ -1,0 +1,13 @@
+category,method,synthetic_threshold,synthetic_band,real_threshold,real_band,good_quantile_threshold,gap_synthetic_vs_real
+bottle,patchcore,35.5,5.0,32.0,0.0,31.00989981596149,3.5
+bottle,vae,8.5,5.0,25.0,0.0,54.53606757786022,-16.5
+bottle,mean,32.0,2.5,48.5,0.0,47.00474831177011,-16.5
+bottle,ensemble,35.5,5.0,32.0,0.0,31.00989981596149,3.5
+screw,patchcore,36.0,2.5,26.5,0.0,29.703402720965286,9.5
+screw,vae,18.0,2.5,6.0,5.0,49.8553532317915,12.0
+screw,mean,9.5,5.0,10.0,7.5,57.350485907668386,-0.5
+screw,ensemble,39.5,0.0,23.0,2.5,33.598576153366935,16.5
+carpet,patchcore,36.0,7.5,35.0,2.5,29.699647142627157,1.0
+carpet,vae,17.0,2.5,29.0,2.5,70.62922121446069,-12.0
+carpet,mean,30.5,2.5,0.0,0.0,61.33848591362809,30.5
+carpet,ensemble,36.0,7.5,35.0,2.5,29.699647142627157,1.0
