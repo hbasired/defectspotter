@@ -62,7 +62,7 @@ class PipelineConfig:
     seed: int = 42
     device: str = "cpu"
     costs: CostModel = field(default_factory=CostModel)
-    stages: tuple = ("index", "eda", "synthetic", "patchcore", "vae", "mean", "diffusion", "calibrate", "evaluate",
+    stages: tuple = ("index", "eda", "synthetic", "patchcore", "vae", "mean", "severity", "diffusion", "calibrate", "evaluate",
                      "latency", "drift", "few_shot", "examples", "summary")
 
     @property
@@ -429,6 +429,51 @@ class Pipeline:
                 self.cfg.figures / f"baseline_mean_std_{category}.jpg", quality=92)
         pd.DataFrame(hpo_rows).to_csv(self.cfg.reports / "hpo_mean_baseline.csv", index=False)
 
+    # ------------------------------------------- detection-limit calibration
+    def stage_severity(self, levels: tuple = (0.25, 0.5)) -> None:
+        """Replay every synthetic defect at reduced severity (label-free 'detection-limit' set).
+
+        Inspection specs define the faintest defect that must be caught. Blending each synthetic defect
+        with its source good image at 25% / 50% strength spans subtle-to-obvious defects, so the cost-
+        optimal threshold is not set by conspicuous synthetic defects only.
+        """
+        import onnxruntime as ort
+
+        from .features import extract_features
+        from .vae import load_vae_input
+
+        for category in self.cfg.categories:
+            images, kinds = [], []
+            for row in self.synthetic(category).itertuples():
+                source = read_rgb(row.source_path).astype(np.float32)
+                defect = read_rgb(row.image_path).astype(np.float32)
+                for level in levels:
+                    images.append(((1 - level) * source + level * defect).clip(0, 255).astype(np.uint8))
+                    kinds.append(level)
+            data, config = self._load_scores("patchcore", category)
+            bank = MemoryBank(np.load(self.cfg.artifacts / category / "patchcore_bank.npy"))
+            grids = extract_features(self.extractor, images, self.cfg.image_size, device=self.cfg.device)
+            scores, _ = score_grids(grids, bank, PatchCoreConfig(**config))
+            self._save_scores("patchcore", category, {**data, "config": config, "sev_scores": scores,
+                                                       "sev_levels": np.asarray(kinds, np.float32)})
+            data, config = self._load_scores("vae", category)
+            vae_config = VAEConfig(**{k: v for k, v in config.items() if k in VAEConfig.__dataclass_fields__})
+            session = ort.InferenceSession(str(self.cfg.artifacts / category / "vae.onnx"),
+                                           providers=["CPUExecutionProvider"])
+            vae_scores = []
+            for image in images:
+                x = load_vae_input(image, vae_config.image_size)
+                vae_scores.append(score_reconstruction(x, session.run(None, {"image": x[None]})[0][0], vae_config)[0])
+            self._save_scores("vae", category, {**data, "config": config,
+                                                 "sev_scores": np.asarray(vae_scores, np.float32),
+                                                 "sev_levels": np.asarray(kinds, np.float32)})
+            data, config = self._load_scores("mean", category)
+            model = MeanImageBaseline.load(self.cfg.artifacts / category)
+            self._save_scores("mean", category, {**data, "config": config,
+                                                  "sev_scores": np.asarray([model.predict(i)[0] for i in images], np.float32),
+                                                  "sev_levels": np.asarray(kinds, np.float32)})
+            self.log(f"  {category}: scored {len(images)} reduced-severity synthetic defects (levels {levels})")
+
     # ---------------------------------------------------- diffusion defects
     def stage_diffusion(self) -> None:
         """Score diffusion-inpainted synthetic defects (scripts/generate_diffusion_defects.py) if present."""
@@ -475,7 +520,9 @@ class Pipeline:
     def stage_calibrate(self) -> None:
         stats = pd.read_csv(self.cfg.reports / "image_stats.csv")
         costs = self.cfg.costs
+        capability_rows = []
         for category in self.cfg.categories:
+            sev_levels = None
             test = self.paths(category, split="test")
             oracle = (test.role == "oracle_calibration").to_numpy()
             labels = test.label.to_numpy()
@@ -490,6 +537,8 @@ class Pipeline:
                                               synthetic_masks=syn_masks)
                 normalized[method] = {k[:-7]: normalize_scores(v, scale) for k, v in data.items() if k.endswith("_scores")}
                 methods[method] = {"config": config, "score_scale": scale, "pixel_scale": pixel_scale}
+                if "sev_levels" in data:
+                    sev_levels = data["sev_levels"]
             # Ensemble weight chosen on synthetic calibration data only (label-free).
             best_w, best_auc = 0.5, -1.0
             for w in np.round(np.linspace(0, 1, 11), 2):
@@ -507,8 +556,30 @@ class Pipeline:
             for method, info in methods.items():
                 s = normalized[method]
                 syn_labels = np.r_[np.zeros(len(s["cal"])), np.ones(len(s["syn"]))]
+                # Label-free capability gate: a calibration set joins the default policy only if the detector
+                # separates it from held-out good parts (synthetic AUROC >= 0.9). Weaker sets mark the detection
+                # limit and are reported, instead of driving the cost optimum to "reject everything".
+                candidate_sets = {"synthetic 100%": s["syn"]}
+                if "sev" in s and sev_levels is not None:
+                    for level in sorted(set(np.round(sev_levels, 2).tolist()), reverse=True):
+                        candidate_sets[f"synthetic {int(round(100 * level))}%"] = s["sev"][np.isclose(sev_levels, level)]
+                if "diff" in s:
+                    candidate_sets["diffusion-refined"] = s["diff"]
+                spec_parts, capability = [], {}
+                for name, values in candidate_sets.items():
+                    auc = safe_auroc(np.r_[np.zeros(len(s["cal"])), np.ones(len(values))], np.r_[s["cal"], values])
+                    used = bool(auc >= 0.9 or name == "synthetic 100%")
+                    capability[name] = {"synthetic_auroc": auc, "used_for_default_threshold": used, "n": int(len(values))}
+                    capability_rows.append({"category": category, "method": method, "calibration_set": name,
+                                            "synthetic_auroc": auc, "n": int(len(values)), "used": used})
+                    if used:
+                        spec_parts.append(values)
+                spec = np.concatenate(spec_parts)
+                info["detection_capability"] = capability
                 policies = {
-                    "synthetic_cost": select_threshold_by_cost(np.r_[s["cal"], s["syn"]], syn_labels, costs),
+                    "synthetic_cost": select_threshold_by_cost(
+                        np.r_[s["cal"], spec], np.r_[np.zeros(len(s["cal"])), np.ones(len(spec))], costs),
+                    "synthetic_conspicuous_cost": select_threshold_by_cost(np.r_[s["cal"], s["syn"]], syn_labels, costs),
                     "good_quantile": {"threshold": select_threshold_good_quantile(s["cal"], 0.01, 5.0), "band": 5.0},
                     "real_oracle_cost": select_threshold_by_cost(s["test"][oracle], labels[oracle], costs),
                 }
@@ -521,6 +592,12 @@ class Pipeline:
                 info["policies"] = {name: {"threshold": float(p["threshold"]), "band": float(p["band"])}
                                     for name, p in policies.items()}
                 info["default_policy"] = "synthetic_cost"
+                info["policy_notes"] = {
+                    "synthetic_cost": "default: held-out good + every synthetic set the detector can reliably separate "
+                                      "(severity 100/50/25% and diffusion-refined; synthetic AUROC >= 0.9)",
+                    "synthetic_conspicuous_cost": "held-out good + full-strength synthetic defects only (first version)",
+                    "good_quantile": "1% false-reject quantile of held-out good parts (no defects at all)",
+                    "real_oracle_cost": "labelled real defects (oracle split) - comparison only, never deployed"}
             reference = reference_from_stats(stats[(stats.category == category) & (stats.role == "model_train_good")])
             calibration = {"category": category, "info": CATEGORY_INFO.get(category, {}), "methods": methods,
                            "health_reference": reference, "costs": costs.to_dict(),
@@ -531,6 +608,7 @@ class Pipeline:
                       self.cfg.work / "scores" / f"normalized_{category}.json")
             self.log(f"  {category}: ensemble weight={best_w}, policies="
                      f"{ {m: methods[m]['policies']['synthetic_cost'] for m in methods} }")
+        pd.DataFrame(capability_rows).to_csv(self.cfg.reports / "detection_capability.csv", index=False)
         self._export_extractor()
 
     def _export_extractor(self) -> None:
@@ -600,7 +678,10 @@ class Pipeline:
                                         "mean_score": float(scores[mask].mean())})
                 synthetic_t = policies["synthetic_cost"]
                 real_t = policies["real_oracle_cost"]
+                conspicuous_t = policies.get("synthetic_conspicuous_cost", synthetic_t)
                 row = {"category": category, "method": method,
+                       "conspicuous_threshold": conspicuous_t["threshold"],
+                       "gap_conspicuous_vs_real": conspicuous_t["threshold"] - real_t["threshold"],
                        "synthetic_threshold": synthetic_t["threshold"], "synthetic_band": synthetic_t["band"],
                        "real_threshold": real_t["threshold"], "real_band": real_t["band"],
                        "good_quantile_threshold": policies["good_quantile"]["threshold"],

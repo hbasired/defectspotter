@@ -1,0 +1,355 @@
+{
+  "category": "bottle",
+  "costs": {
+    "cost_escape": 400.0,
+    "cost_false_reject": 2.0,
+    "cost_review": 0.3,
+    "defect_prevalence": 0.01,
+    "human_detection_rate": 0.8,
+    "parts_per_day": 20000,
+    "review_capacity": 0.1
+  },
+  "health_reference": {
+    "brightness": {
+      "mean": 136.2697609299919,
+      "p01": 133.51255271604938,
+      "p99": 139.20693323456788,
+      "std": 1.3336717354739185
+    },
+    "contrast": {
+      "mean": 92.90517388749215,
+      "p01": 91.68362727911793,
+      "p99": 94.1495838410064,
+      "std": 0.520287582491896
+    },
+    "sharpness": {
+      "mean": 182.62983493462295,
+      "p01": 127.38193176269532,
+      "p99": 262.8573419189454,
+      "std": 31.580797068955132
+    }
+  },
+  "info": {
+    "kind": "object",
+    "line_context": "Filling line, top-down camera before capping.",
+    "summary": "Glass bottle seen from above: broken rims and contamination inside the neck.",
+    "title": "Bottle"
+  },
+  "methods": {
+    "ensemble": {
+      "config": {},
+      "default_policy": "synthetic_cost",
+      "detection_capability": {
+        "diffusion-refined": {
+          "n": 8,
+          "synthetic_auroc": 0.39285714285714285,
+          "used_for_default_threshold": false
+        },
+        "synthetic 100%": {
+          "n": 84,
+          "synthetic_auroc": 0.9791666666666666,
+          "used_for_default_threshold": true
+        },
+        "synthetic 25%": {
+          "n": 84,
+          "synthetic_auroc": 0.8562925170068026,
+          "used_for_default_threshold": false
+        },
+        "synthetic 50%": {
+          "n": 84,
+          "synthetic_auroc": 0.9318310657596371,
+          "used_for_default_threshold": true
+        }
+      },
+      "pixel_scale": {
+        "high": 100.0,
+        "low": 0.0,
+        "threshold": 50.0
+      },
+      "policies": {
+        "diffusion_cost": {
+          "band": 0.0,
+          "threshold": 24.0
+        },
+        "good_quantile": {
+          "band": 5.0,
+          "threshold": 31.00989981596149
+        },
+        "real_oracle_cost": {
+          "band": 0.0,
+          "threshold": 32.0
+        },
+        "synthetic_conspicuous_cost": {
+          "band": 5.0,
+          "threshold": 35.5
+        },
+        "synthetic_cost": {
+          "band": 5.0,
+          "threshold": 34.5
+        },
+        "synthetic_plus_diffusion_cost": {
+          "band": 5.0,
+          "threshold": 35.5
+        }
+      },
+      "policy_notes": {
+        "good_quantile": "1% false-reject quantile of held-out good parts (no defects at all)",
+        "real_oracle_cost": "labelled real defects (oracle split) - comparison only, never deployed",
+        "synthetic_conspicuous_cost": "held-out good + full-strength synthetic defects only (first version)",
+        "synthetic_cost": "default: held-out good + every synthetic set the detector can reliably separate (severity 100/50/25% and diffusion-refined; synthetic AUROC >= 0.9)"
+      },
+      "score_scale": {
+        "anchor_good": 25.0,
+        "anchor_synthetic": 75.0,
+        "good_median": 25.0,
+        "spread": 50.0,
+        "synthetic_median": 75.0
+      },
+      "synthetic_auroc": 0.9791666666666666,
+      "weight_patchcore": 1.0
+    },
+    "mean": {
+      "config": {
+        "alignment": "affine",
+        "blur_sigma": 3.0,
+        "image_size": 224,
+        "pre_blur": 1.0,
+        "std_floor": 4.0,
+        "topk_fraction": 0.01
+      },
+      "default_policy": "synthetic_cost",
+      "detection_capability": {
+        "diffusion-refined": {
+          "n": 8,
+          "synthetic_auroc": 0.2142857142857143,
+          "used_for_default_threshold": false
+        },
+        "synthetic 100%": {
+          "n": 84,
+          "synthetic_auroc": 0.8543083900226757,
+          "used_for_default_threshold": true
+        },
+        "synthetic 25%": {
+          "n": 84,
+          "synthetic_auroc": 0.5201247165532881,
+          "used_for_default_threshold": false
+        },
+        "synthetic 50%": {
+          "n": 84,
+          "synthetic_auroc": 0.647392290249433,
+          "used_for_default_threshold": false
+        }
+      },
+      "pixel_scale": {
+        "high": 5.160400390625,
+        "low": 0.390380859375,
+        "quantile": 0.999,
+        "threshold": 2.775390625
+      },
+      "policies": {
+        "diffusion_cost": {
+          "band": 2.5,
+          "threshold": 7.0
+        },
+        "good_quantile": {
+          "band": 5.0,
+          "threshold": 47.00474831177011
+        },
+        "real_oracle_cost": {
+          "band": 0.0,
+          "threshold": 48.5
+        },
+        "synthetic_conspicuous_cost": {
+          "band": 2.5,
+          "threshold": 32.0
+        },
+        "synthetic_cost": {
+          "band": 2.5,
+          "threshold": 32.0
+        },
+        "synthetic_plus_diffusion_cost": {
+          "band": 2.5,
+          "threshold": 32.0
+        }
+      },
+      "policy_notes": {
+        "good_quantile": "1% false-reject quantile of held-out good parts (no defects at all)",
+        "real_oracle_cost": "labelled real defects (oracle split) - comparison only, never deployed",
+        "synthetic_conspicuous_cost": "held-out good + full-strength synthetic defects only (first version)",
+        "synthetic_cost": "default: held-out good + every synthetic set the detector can reliably separate (severity 100/50/25% and diffusion-refined; synthetic AUROC >= 0.9)"
+      },
+      "score_scale": {
+        "anchor_good": 25.0,
+        "anchor_synthetic": 75.0,
+        "good_median": 2.053969144821167,
+        "spread": 1.9587514292291826,
+        "synthetic_median": 3.1124000549316406
+      }
+    },
+    "patchcore": {
+      "config": {
+        "backbone": "resnet18",
+        "blur_sigma": 4.0,
+        "coreset_ratio": 0.01,
+        "image_size": 224,
+        "max_bank_mb": 45.0,
+        "projection_dim": 128,
+        "score_mode": "max",
+        "topk_fraction": 0.01
+      },
+      "default_policy": "synthetic_cost",
+      "detection_capability": {
+        "diffusion-refined": {
+          "n": 8,
+          "synthetic_auroc": 0.39285714285714285,
+          "used_for_default_threshold": false
+        },
+        "synthetic 100%": {
+          "n": 84,
+          "synthetic_auroc": 0.9791666666666666,
+          "used_for_default_threshold": true
+        },
+        "synthetic 25%": {
+          "n": 84,
+          "synthetic_auroc": 0.8562925170068026,
+          "used_for_default_threshold": false
+        },
+        "synthetic 50%": {
+          "n": 84,
+          "synthetic_auroc": 0.9318310657596371,
+          "used_for_default_threshold": true
+        }
+      },
+      "pixel_scale": {
+        "high": 2.6015625,
+        "low": 0.9775390625,
+        "quantile": 0.999,
+        "threshold": 1.3935546875
+      },
+      "policies": {
+        "diffusion_cost": {
+          "band": 0.0,
+          "threshold": 24.0
+        },
+        "good_quantile": {
+          "band": 5.0,
+          "threshold": 31.00989981596149
+        },
+        "real_oracle_cost": {
+          "band": 0.0,
+          "threshold": 32.0
+        },
+        "synthetic_conspicuous_cost": {
+          "band": 5.0,
+          "threshold": 35.5
+        },
+        "synthetic_cost": {
+          "band": 5.0,
+          "threshold": 34.5
+        },
+        "synthetic_plus_diffusion_cost": {
+          "band": 5.0,
+          "threshold": 35.5
+        }
+      },
+      "policy_notes": {
+        "good_quantile": "1% false-reject quantile of held-out good parts (no defects at all)",
+        "real_oracle_cost": "labelled real defects (oracle split) - comparison only, never deployed",
+        "synthetic_conspicuous_cost": "held-out good + full-strength synthetic defects only (first version)",
+        "synthetic_cost": "default: held-out good + every synthetic set the detector can reliably separate (severity 100/50/25% and diffusion-refined; synthetic AUROC >= 0.9)"
+      },
+      "score_scale": {
+        "anchor_good": 25.0,
+        "anchor_synthetic": 75.0,
+        "good_median": 1.3897718787193298,
+        "spread": 1.612907588481903,
+        "synthetic_median": 3.002679467201233
+      }
+    },
+    "vae": {
+      "config": {
+        "base_channels": 32,
+        "batch_size": 32,
+        "beta": 0.001,
+        "blur_sigma": 2.0,
+        "epochs": 120,
+        "hflip": true,
+        "image_size": 128,
+        "latent_dim": 128,
+        "learning_rate": 0.001,
+        "rot90": true,
+        "ssim_weight": 0.5,
+        "topk_fraction": 0.01
+      },
+      "default_policy": "synthetic_cost",
+      "detection_capability": {
+        "diffusion-refined": {
+          "n": 8,
+          "synthetic_auroc": 0.39583333333333337,
+          "used_for_default_threshold": false
+        },
+        "synthetic 100%": {
+          "n": 84,
+          "synthetic_auroc": 0.6017573696145125,
+          "used_for_default_threshold": true
+        },
+        "synthetic 25%": {
+          "n": 84,
+          "synthetic_auroc": 0.502267573696145,
+          "used_for_default_threshold": false
+        },
+        "synthetic 50%": {
+          "n": 84,
+          "synthetic_auroc": 0.5189909297052154,
+          "used_for_default_threshold": false
+        }
+      },
+      "pixel_scale": {
+        "high": 0.6430058479309082,
+        "low": 0.02984619140625,
+        "quantile": 0.999,
+        "threshold": 0.3364260196685791
+      },
+      "policies": {
+        "diffusion_cost": {
+          "band": 5.0,
+          "threshold": 8.5
+        },
+        "good_quantile": {
+          "band": 5.0,
+          "threshold": 54.53606757786022
+        },
+        "real_oracle_cost": {
+          "band": 0.0,
+          "threshold": 25.0
+        },
+        "synthetic_conspicuous_cost": {
+          "band": 5.0,
+          "threshold": 8.5
+        },
+        "synthetic_cost": {
+          "band": 5.0,
+          "threshold": 8.5
+        },
+        "synthetic_plus_diffusion_cost": {
+          "band": 5.0,
+          "threshold": 8.5
+        }
+      },
+      "policy_notes": {
+        "good_quantile": "1% false-reject quantile of held-out good parts (no defects at all)",
+        "real_oracle_cost": "labelled real defects (oracle split) - comparison only, never deployed",
+        "synthetic_conspicuous_cost": "held-out good + full-strength synthetic defects only (first version)",
+        "synthetic_cost": "default: held-out good + every synthetic set the detector can reliably separate (severity 100/50/25% and diffusion-refined; synthetic AUROC >= 0.9)"
+      },
+      "score_scale": {
+        "anchor_good": 25.0,
+        "anchor_synthetic": 75.0,
+        "good_median": 0.2384798899292946,
+        "spread": 0.20919945331125847,
+        "synthetic_median": 0.25989656150341034
+      }
+    }
+  },
+  "threshold_policy_note": "Default = cost-optimal on held-out good + synthetic defects; real_oracle_cost uses labelled defects and is for comparison only."
+}

@@ -272,11 +272,20 @@ def threshold_dumbbell(thresholds: pd.DataFrame, method: str) -> go.Figure:
         return empty("No threshold comparison")
     fig = go.Figure()
     for _, row in part.iterrows():
-        fig.add_trace(go.Scatter(x=[row.synthetic_threshold, row.real_threshold], y=[row.category] * 2, mode="lines",
+        xs = [row.synthetic_threshold, row.real_threshold]
+        if "conspicuous_threshold" in part:
+            xs.append(row.conspicuous_threshold)
+        fig.add_trace(go.Scatter(x=[min(xs), max(xs)], y=[row.category] * 2, mode="lines",
                                  line={"color": AXIS, "width": 3}, showlegend=False, hoverinfo="skip"))
-    fig.add_trace(go.Scatter(x=part.synthetic_threshold, y=part.category, mode="markers", name="synthetic defects only",
+    if "conspicuous_threshold" in part:
+        fig.add_trace(go.Scatter(x=part.conspicuous_threshold, y=part.category, mode="markers",
+                                 name="synthetic, full-strength only (v1)",
+                                 marker={"size": 11, "color": "#ffffff", "line": {"color": SERIES[0], "width": 2}},
+                                 hovertemplate="%{y}: %{x:.1f}<extra>conspicuous synthetic</extra>"))
+    fig.add_trace(go.Scatter(x=part.synthetic_threshold, y=part.category, mode="markers",
+                             name="synthetic, detection-limit sweep (default)",
                              marker={"size": 13, "color": SERIES[0], "line": {"color": "#fff", "width": 2}},
-                             hovertemplate="%{y}: %{x:.1f}<extra>synthetic</extra>"))
+                             hovertemplate="%{y}: %{x:.1f}<extra>synthetic (default)</extra>"))
     fig.add_trace(go.Scatter(x=part.real_threshold, y=part.category, mode="markers", name="real labelled defects (oracle)",
                              marker={"size": 13, "color": SERIES[1], "symbol": "diamond", "line": {"color": "#fff", "width": 2}},
                              hovertemplate="%{y}: %{x:.1f}<extra>real</extra>"))

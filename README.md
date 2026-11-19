@@ -58,10 +58,13 @@ flowchart LR
 3. **Classical baseline.** ECC alignment (translation / rigid / affine chosen on synthetic data) to a median good reference,
    then a per-pixel z-score against the mean and standard deviation of aligned good parts.
 4. **Synthetic defects choose the threshold.** Procedural **cut-paste / scratch / stain** defects and
-   **Stable-Diffusion inpainting** (SD-1.5 inpainting + LCM-LoRA, product-specific prompts, masked composite) on held-out
-   good parts. With held-out good parts they set the score scale (25 = typical good, 75 = typical synthetic defect), tune
-   hyper-parameters label-free and pick the **cost-optimal three-way thresholds**. Real defects are used only to measure
-   how far that threshold is from an oracle chosen with labels.
+   **Stable-Diffusion refinement** of them (SD-1.5 inpainting + LCM-LoRA, SDEdit strength 0.6, product-specific prompts,
+   masked composite — plain inpainting just re-drew a good surface) on held-out
+   good parts. Each synthetic defect is also replayed at **25% / 50% severity** (detection-limit calibration — real screw
+   thread damage is far subtler than full-strength synthetic defects); a set joins the default calibration only if the
+   detector separates it from good parts (synthetic AUROC ≥ 0.9, a label-free capability check). With held-out good parts they set the score scale
+   (25 = typical good, 75 = typical synthetic defect), tune hyper-parameters label-free and pick the **cost-optimal
+   three-way thresholds**. Real defects are used only to measure how far that threshold is from an oracle chosen with labels.
 5. **Decisions with economics.** `PASS < t − b ≤ CHECK < t + b ≤ REJECT`; `(t, b)` minimise
    `(1−p)·FRR·C_false_reject + p·escape·C_escape + review·C_check` with inspector capacity ≤ 10% of parts.
 6. **Responsible operation.** No automatic decision on images outside the qualified acquisition range (brightness /
@@ -80,6 +83,7 @@ flowchart LR
 | HPO objective could not separate configs (synthetic AUROC saturates at 1.0) | adds TPR at ≤1% false rejects, the operating requirement |
 | PSI-only drift demo; health signals not used for decisions | camera-health **gate** + EWMA control charts + PSI; maintenance-aware stream |
 | Diffusion defects disabled by default and never compared | SD inpainting generated (CPU-feasible with LCM-LoRA) and its threshold compared with real defects |
+| Thresholds set by conspicuous synthetic defects only (first run: 35% screw escapes) | detection-limit calibration: synthetic defects replayed at 25/50/100% severity; v1 kept for comparison |
 | No human review workflow | review queue + audit log; ground truth shown on samples |
 | Dual-axis charts, dark hero | single-axis charts, colour-blind-validated palette, light theme |
 | ZeroGPU claim without `@spaces.GPU` | ZeroGPU-compatible entry point; deployment script with clear free-tier rules |
@@ -104,7 +108,7 @@ python scripts/download_data.py --dest data/mvtec_ad                 # pinned HF
 python scripts/train.py --data data/mvtec_ad                         # ~1 h on a 4-core CPU, ~15 min on a GPU
 pip install -r requirements-diffusion.txt                            # optional GenAI defects
 python scripts/generate_diffusion_defects.py --data data/mvtec_ad
-python scripts/train.py --data data/mvtec_ad --stages diffusion calibrate evaluate summary
+python scripts/train.py --data data/mvtec_ad --stages severity diffusion calibrate evaluate drift summary
 python scripts/backbone_study.py --data data/mvtec_ad                # optional, ~25 min on CPU
 pip install -r requirements-dev.txt && pytest                        # 26 tests
 ```

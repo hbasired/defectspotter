@@ -24,7 +24,7 @@ python scripts/download_data.py --dest data/mvtec_ad   # 1.3 GB, MVTec AD (CC BY
 python scripts/train.py --data data/mvtec_ad           # ~1 h on a 4-core CPU, ~15 min on a GPU
 pip install -r requirements-diffusion.txt              # optional GenAI synthetic defects
 python scripts/generate_diffusion_defects.py --data data/mvtec_ad
-python scripts/train.py --data data/mvtec_ad --stages diffusion calibrate evaluate summary
+python scripts/train.py --data data/mvtec_ad --stages severity diffusion calibrate evaluate drift summary
 ```
 
 ## 2 · Google Colab

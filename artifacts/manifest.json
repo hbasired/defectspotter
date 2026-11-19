@@ -1,0 +1,31 @@
+{
+  "categories": [
+    "bottle",
+    "screw",
+    "carpet"
+  ],
+  "created": "2026-11-19 22:23:49",
+  "dataset": {
+    "mirror": "foersben/mvtec-ad",
+    "name": "MVTec AD",
+    "revision": "c75b39616f84db43677bcc8228caaafaf5096d7f"
+  },
+  "feature_extractor": {
+    "backbone": "resnet18",
+    "feature_dim": 384,
+    "grid": [
+      28,
+      28
+    ],
+    "image_size": 224,
+    "max_abs_error_vs_torch": 1.1920928955078125e-06,
+    "opset": 17,
+    "parameters": 2782784,
+    "path": "feature_extractor.onnx",
+    "size_mb": 10.616175651550293,
+    "verified": true
+  },
+  "map_size": 224,
+  "vae_image_size": 128,
+  "version": "2.0.0"
+}

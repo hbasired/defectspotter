@@ -1,0 +1,49 @@
+category,method,calibration_set,synthetic_auroc,n,used
+bottle,patchcore,synthetic 100%,0.9791666666666666,84,True
+bottle,patchcore,synthetic 50%,0.9318310657596371,84,True
+bottle,patchcore,synthetic 25%,0.8562925170068026,84,False
+bottle,patchcore,diffusion-refined,0.39285714285714285,8,False
+bottle,vae,synthetic 100%,0.6017573696145125,84,True
+bottle,vae,synthetic 50%,0.5189909297052154,84,False
+bottle,vae,synthetic 25%,0.502267573696145,84,False
+bottle,vae,diffusion-refined,0.39583333333333337,8,False
+bottle,mean,synthetic 100%,0.8543083900226757,84,True
+bottle,mean,synthetic 50%,0.647392290249433,84,False
+bottle,mean,synthetic 25%,0.5201247165532881,84,False
+bottle,mean,diffusion-refined,0.2142857142857143,8,False
+bottle,ensemble,synthetic 100%,0.9791666666666666,84,True
+bottle,ensemble,synthetic 50%,0.9318310657596371,84,True
+bottle,ensemble,synthetic 25%,0.8562925170068026,84,False
+bottle,ensemble,diffusion-refined,0.39285714285714285,8,False
+screw,patchcore,synthetic 100%,0.9931640625,128,True
+screw,patchcore,synthetic 50%,0.981201171875,128,True
+screw,patchcore,synthetic 25%,0.92767333984375,128,True
+screw,patchcore,diffusion-refined,0.466796875,8,False
+screw,vae,synthetic 100%,0.6541748046875,128,True
+screw,vae,synthetic 50%,0.5450439453125,128,False
+screw,vae,synthetic 25%,0.50390625,128,False
+screw,vae,diffusion-refined,0.482421875,8,False
+screw,mean,synthetic 100%,0.6448974609375,128,True
+screw,mean,synthetic 50%,0.57861328125,128,False
+screw,mean,synthetic 25%,0.5245361328125,128,False
+screw,mean,diffusion-refined,0.298828125,8,False
+screw,ensemble,synthetic 100%,0.9959716796875,128,True
+screw,ensemble,synthetic 50%,0.9732666015625,128,True
+screw,ensemble,synthetic 25%,0.9007568359375,128,True
+screw,ensemble,diffusion-refined,0.453125,8,False
+carpet,patchcore,synthetic 100%,0.9303252551020407,112,True
+carpet,patchcore,synthetic 50%,0.6607142857142858,112,False
+carpet,patchcore,synthetic 25%,0.540656887755102,112,False
+carpet,patchcore,diffusion-refined,0.6071428571428571,8,False
+carpet,vae,synthetic 100%,0.6470025510204082,112,True
+carpet,vae,synthetic 50%,0.5141900510204082,112,False
+carpet,vae,synthetic 25%,0.4987244897959184,112,False
+carpet,vae,diffusion-refined,0.4375,8,False
+carpet,mean,synthetic 100%,0.8401626275510203,112,True
+carpet,mean,synthetic 50%,0.6339285714285715,112,False
+carpet,mean,synthetic 25%,0.5220025510204082,112,False
+carpet,mean,diffusion-refined,0.5513392857142857,8,False
+carpet,ensemble,synthetic 100%,0.9303252551020407,112,True
+carpet,ensemble,synthetic 50%,0.6607142857142858,112,False
+carpet,ensemble,synthetic 25%,0.540656887755102,112,False
+carpet,ensemble,diffusion-refined,0.6071428571428571,8,False
