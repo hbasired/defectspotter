@@ -58,8 +58,8 @@ flowchart LR
 3. **Classical baseline.** ECC alignment (translation / rigid / affine chosen on synthetic data) to a median good reference,
    then a per-pixel z-score against the mean and standard deviation of aligned good parts.
 4. **Synthetic defects choose the threshold.** Procedural **cut-paste / scratch / stain** defects and
-   **Stable-Diffusion refinement** of them (SD-1.5 inpainting + LCM-LoRA, SDEdit strength 0.6, product-specific prompts,
-   masked composite — plain inpainting just re-drew a good surface) on held-out
+   **Stable-Diffusion refinement** of them (SD-1.5 image-to-image SDEdit + LCM-LoRA, strength 0.45 on a crop around each
+   defect, product-specific prompts, masked composite — plain inpainting just re-drew a good surface) on held-out
    good parts. Each synthetic defect is also replayed at **25% / 50% severity** (detection-limit calibration — real screw
    thread damage is far subtler than full-strength synthetic defects); a set joins the default calibration only if the
    detector separates it from good parts (synthetic AUROC ≥ 0.9, a label-free capability check). With held-out good parts they set the score scale
@@ -82,7 +82,7 @@ flowchart LR
 | Score scale anchored on combined quantiles; saturated heat maps | label-free anchors (good / synthetic medians) and a piecewise pixel scale |
 | HPO objective could not separate configs (synthetic AUROC saturates at 1.0) | adds TPR at ≤1% false rejects, the operating requirement |
 | PSI-only drift demo; health signals not used for decisions | camera-health **gate** + EWMA control charts + PSI; maintenance-aware stream |
-| Diffusion defects disabled by default and never compared | SD inpainting generated (CPU-feasible with LCM-LoRA) and its threshold compared with real defects |
+| Diffusion defects disabled by default and never compared | SD-1.5 SDEdit refinement of procedural defects (CPU-feasible with LCM-LoRA), capability-checked and compared with real defects |
 | Thresholds set by conspicuous synthetic defects only (first run: 35% screw escapes) | detection-limit calibration: synthetic defects replayed at 25/50/100% severity; v1 kept for comparison |
 | No human review workflow | review queue + audit log; ground truth shown on samples |
 | Dual-axis charts, dark hero | single-axis charts, colour-blind-validated palette, light theme |
