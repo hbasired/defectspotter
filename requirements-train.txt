@@ -1,0 +1,9 @@
+# Training / evaluation / ONNX export (CPU works; a CUDA GPU makes it ~5x faster).
+#   pip install -r requirements-train.txt
+#   python scripts/download_data.py --dest data/mvtec_ad
+#   python scripts/train.py --data data/mvtec_ad
+-r requirements.txt
+torch>=2.2
+torchvision>=0.17
+onnx>=1.16
+onnxscript>=0.1

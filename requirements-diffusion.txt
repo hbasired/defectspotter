@@ -1,0 +1,7 @@
+# Optional: Stable-Diffusion inpainting of synthetic scratches/stains (scripts/generate_diffusion_defects.py).
+-r requirements-train.txt
+diffusers>=0.31
+transformers>=4.45
+accelerate>=1.0
+peft>=0.13
+safetensors>=0.4
