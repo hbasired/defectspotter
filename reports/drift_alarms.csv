@@ -1,0 +1,10 @@
+category,signal,false_alarms_while_qualified,first_alarm_after_lamp_ageing,first_alarm_after_camera_bump
+bottle,brightness,1,64,
+bottle,sharpness,0,81,
+bottle,anomaly_score (winsorised),0,71,153.0
+screw,brightness,35,61,151.0
+screw,sharpness,0,73,160.0
+screw,anomaly_score (winsorised),0,82,152.0
+carpet,brightness,23,69,177.0
+carpet,sharpness,0,73,
+carpet,anomaly_score (winsorised),56,61,151.0
