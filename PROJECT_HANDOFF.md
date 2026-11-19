@@ -82,7 +82,8 @@ app.py → ui/app.py (Gradio) → defectspotter/runtime.py (ONNX Runtime + NumPy
 | Health gate | brightness/contrast/sharpness z-score vs qualified images, \|z\|>4 → no automatic decision (CHECK) | lighting drift otherwise causes mass false rejects |
 | Drift | EWMA (λ=0.2, 3σ, 2-in-a-row) on winsorised scores and health signals + rolling PSI | SPC practice; health signals lead for lighting, score chart needed for geometry |
 | Few-shot | memory bank from k good images; threshold from leave-one-image-out scores | PatchCore needs no network training |
-| Diffusion defects | SD-1.5 inpainting + LCM-LoRA (4 steps, guidance 1.0), procedural masks, masked composite | GenAI synthetic defects that run even on CPU |
+| Diffusion defects | SD-1.5 inpainting + LCM-LoRA used as **SDEdit refinement** of procedural defects (strength 0.6, 6 steps, guidance 1.5), masked composite | plain inpainting re-drew a *good* surface (mean change 2–6 grey levels, synthetic AUROC ≈ 0.4–0.6); refinement keeps the defect and adds realistic texture; runs on CPU |
+| Capability gate | a synthetic set joins the default threshold only if synthetic AUROC ≥ 0.9 vs held-out good (`reports/detection_capability.csv`) | undetectable sets (e.g. 25% carpet) otherwise push the cost optimum to "reject everything" |
 
 Splits (seed 42): train/good → 80% `model_train_good` + 20% `calibration_good`; test → per defect type 35%
 `oracle_calibration` (real-label threshold, comparison only) + 65% `operating_test`. Real defects never train a model or

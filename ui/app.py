@@ -553,6 +553,11 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
                 with gr.Row():
                     lab_matrix = gr.Dataframe(label="Decision matrix (truth × decision)", interactive=False)
                     lab_policies = gr.Dataframe(label="Threshold policies compared on the operating test split", interactive=False)
+                gr.Markdown("**Label-free detection capability.** Before a synthetic set may influence the default threshold, the "
+                            "detector must separate it from held-out good parts (synthetic AUROC ≥ 0.9). Sets below that are the "
+                            "system's documented detection limit — like a measurement-capability study on a real line.")
+                lab_capability = gr.Dataframe(label="Synthetic AUROC by calibration set (no real defects involved)",
+                                              interactive=False)
 
             # ------------------------------------------------------------ EDA
             with gr.Tab("📊 EDA"):
@@ -742,6 +747,16 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
         gr.on([category.change, method.change, threshold.change, band.change, prevalence.change, c_escape.change,
                c_fr.change, c_review.change, capacity.change, per_day.change, eval_set.change, demo.load],
               lab, lab_inputs, lab_outputs, trigger_mode="always_last", **PRIVATE)
+        def capability_table(category, method):
+            frame = store.csv("detection_capability.csv")
+            if frame.empty:
+                return frame
+            part = frame[(frame.category == category) & (frame.method == method)].copy()
+            part["synthetic_auroc"] = part.synthetic_auroc.round(3)
+            part["used"] = np.where(part.used, "✓ used for default threshold", "✕ below detection limit")
+            return part[["calibration_set", "n", "synthetic_auroc", "used"]]
+
+        gr.on([category.change, method.change, demo.load], capability_table, [category, method], [lab_capability], **PRIVATE)
         apply_btn.click(apply_optimal, [category, method, band, prevalence, c_escape, c_fr, c_review, capacity],
                         [threshold, band], **PRIVATE)
 

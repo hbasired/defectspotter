@@ -58,9 +58,11 @@ flowchart LR
 3. **Classical baseline.** ECC alignment (translation / rigid / affine chosen on synthetic data) to a median good reference,
    then a per-pixel z-score against the mean and standard deviation of aligned good parts.
 4. **Synthetic defects choose the threshold.** Procedural **cut-paste / scratch / stain** defects and
-   **Stable-Diffusion inpainting** (SD-1.5 inpainting + LCM-LoRA, product-specific prompts, masked composite) on held-out
+   **Stable-Diffusion refinement** of them (SD-1.5 inpainting + LCM-LoRA, SDEdit strength 0.6, product-specific prompts,
+   masked composite — plain inpainting just re-drew a good surface) on held-out
    good parts. Each synthetic defect is also replayed at **25% / 50% severity** (detection-limit calibration — real screw
-   thread damage is far subtler than full-strength synthetic defects). With held-out good parts they set the score scale
+   thread damage is far subtler than full-strength synthetic defects); a set joins the default calibration only if the
+   detector separates it from good parts (synthetic AUROC ≥ 0.9, a label-free capability check). With held-out good parts they set the score scale
    (25 = typical good, 75 = typical synthetic defect), tune hyper-parameters label-free and pick the **cost-optimal
    three-way thresholds**. Real defects are used only to measure how far that threshold is from an oracle chosen with labels.
 5. **Decisions with economics.** `PASS < t − b ≤ CHECK < t + b ≤ REJECT`; `(t, b)` minimise

@@ -520,7 +520,9 @@ class Pipeline:
     def stage_calibrate(self) -> None:
         stats = pd.read_csv(self.cfg.reports / "image_stats.csv")
         costs = self.cfg.costs
+        capability_rows = []
         for category in self.cfg.categories:
+            sev_levels = None
             test = self.paths(category, split="test")
             oracle = (test.role == "oracle_calibration").to_numpy()
             labels = test.label.to_numpy()
@@ -535,6 +537,8 @@ class Pipeline:
                                               synthetic_masks=syn_masks)
                 normalized[method] = {k[:-7]: normalize_scores(v, scale) for k, v in data.items() if k.endswith("_scores")}
                 methods[method] = {"config": config, "score_scale": scale, "pixel_scale": pixel_scale}
+                if "sev_levels" in data:
+                    sev_levels = data["sev_levels"]
             # Ensemble weight chosen on synthetic calibration data only (label-free).
             best_w, best_auc = 0.5, -1.0
             for w in np.round(np.linspace(0, 1, 11), 2):
@@ -552,7 +556,26 @@ class Pipeline:
             for method, info in methods.items():
                 s = normalized[method]
                 syn_labels = np.r_[np.zeros(len(s["cal"])), np.ones(len(s["syn"]))]
-                spec = np.r_[s["syn"], s["sev"]] if "sev" in s else s["syn"]
+                # Label-free capability gate: a calibration set joins the default policy only if the detector
+                # separates it from held-out good parts (synthetic AUROC >= 0.9). Weaker sets mark the detection
+                # limit and are reported, instead of driving the cost optimum to "reject everything".
+                candidate_sets = {"synthetic 100%": s["syn"]}
+                if "sev" in s and sev_levels is not None:
+                    for level in sorted(set(np.round(sev_levels, 2).tolist()), reverse=True):
+                        candidate_sets[f"synthetic {int(round(100 * level))}%"] = s["sev"][np.isclose(sev_levels, level)]
+                if "diff" in s:
+                    candidate_sets["diffusion-refined"] = s["diff"]
+                spec_parts, capability = [], {}
+                for name, values in candidate_sets.items():
+                    auc = safe_auroc(np.r_[np.zeros(len(s["cal"])), np.ones(len(values))], np.r_[s["cal"], values])
+                    used = bool(auc >= 0.9 or name == "synthetic 100%")
+                    capability[name] = {"synthetic_auroc": auc, "used_for_default_threshold": used, "n": int(len(values))}
+                    capability_rows.append({"category": category, "method": method, "calibration_set": name,
+                                            "synthetic_auroc": auc, "n": int(len(values)), "used": used})
+                    if used:
+                        spec_parts.append(values)
+                spec = np.concatenate(spec_parts)
+                info["detection_capability"] = capability
                 policies = {
                     "synthetic_cost": select_threshold_by_cost(
                         np.r_[s["cal"], spec], np.r_[np.zeros(len(s["cal"])), np.ones(len(spec))], costs),
@@ -570,7 +593,8 @@ class Pipeline:
                                     for name, p in policies.items()}
                 info["default_policy"] = "synthetic_cost"
                 info["policy_notes"] = {
-                    "synthetic_cost": "default: held-out good + synthetic defects at 25/50/100% severity (detection-limit)",
+                    "synthetic_cost": "default: held-out good + every synthetic set the detector can reliably separate "
+                                      "(severity 100/50/25% and diffusion-refined; synthetic AUROC >= 0.9)",
                     "synthetic_conspicuous_cost": "held-out good + full-strength synthetic defects only (first version)",
                     "good_quantile": "1% false-reject quantile of held-out good parts (no defects at all)",
                     "real_oracle_cost": "labelled real defects (oracle split) - comparison only, never deployed"}
@@ -584,6 +608,7 @@ class Pipeline:
                       self.cfg.work / "scores" / f"normalized_{category}.json")
             self.log(f"  {category}: ensemble weight={best_w}, policies="
                      f"{ {m: methods[m]['policies']['synthetic_cost'] for m in methods} }")
+        pd.DataFrame(capability_rows).to_csv(self.cfg.reports / "detection_capability.csv", index=False)
         self._export_extractor()
 
     def _export_extractor(self) -> None:
