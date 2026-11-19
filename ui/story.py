@@ -134,7 +134,7 @@ def pipeline_html() -> str:
 <div class="ds-grid2" style="margin-top:12px">
  <div class="ds-card"><h3>Synthetic defects choose the threshold</h3>
   <p class="ds-note">Held-out good parts are corrupted with procedural <b>cut-paste</b>, <b>scratch</b> and <b>stain</b>
-  defects (with exact masks), refined by <b>Stable-Diffusion inpainting</b> for realistic texture. Every synthetic
+  defects (with exact masks), refined by <b>Stable Diffusion (SDEdit image-to-image)</b> for realistic texture. Every synthetic
   defect is also replayed at <b>25% and 50% severity</b> — the "detection limit" a real inspection spec defines — because
   full-strength synthetic defects are far more conspicuous than real thread damage on screws. A set only joins the default
   calibration if the detector reliably separates it from good parts (synthetic AUROC ≥ 0.9); weaker sets document the
