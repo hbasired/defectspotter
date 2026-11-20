@@ -622,12 +622,20 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
                     dumbbell = gr.Plot(charts.threshold_dumbbell(store.csv("threshold_comparison.csv"), default_method),
                                        show_label=False)
                     gr.Plot(charts.vae_history_chart(store.csv("vae_training_history.csv")), show_label=False)
+                hpo = store.csv("hpo_patchcore.csv")
+                with gr.Row():
+                    gr.Dataframe(_recipe_table(hpo), interactive=False,
+                                 label="Per-product PatchCore recipe (selected on held-out good + synthetic defects only)")
+                with gr.Row():
+                    gr.Dataframe(_ablation_table(hpo), interactive=False,
+                                 label="What each design choice is worth: best label-free objective per option and product")
                 with gr.Accordion("Tables: backbone study · thresholds · latency · artifact sizes · hyper-parameter search", open=False):
                     gr.Dataframe(store.csv("backbone_study.csv").round(4), label="Backbone study (test split, for analysis only)")
                     gr.Dataframe(store.csv("threshold_comparison.csv").round(2), label="Synthetic vs real-defect thresholds")
                     gr.Dataframe(store.csv("latency.csv").round(1), label="Latency")
                     gr.Dataframe(store.csv("artifact_sizes.csv").round(2), label="Deployment artifacts (MB)")
-                    gr.Dataframe(store.csv("hpo_patchcore.csv").round(4), label="PatchCore search (synthetic validation only)")
+                    gr.Dataframe((hpo.sort_values(["category", "objective"], ascending=[True, False]) if "objective" in hpo
+                                  else hpo).round(4), label="PatchCore search (synthetic validation only, best first)")
                     gr.Dataframe(store.csv("hpo_mean_baseline.csv").round(4), label="Baseline alignment search")
 
             # ----------------------------------------------------------- drift
@@ -801,6 +809,39 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
         api_batch_btn.click(api_batch, [api_files, api_category, api_method], [api_batch_out, api_batch_csv],
                             api_name="inspect_batch")
     return demo
+
+
+RECIPE_COLUMNS = ("category", "image_size", "pool_size", "bank_rotations", "coreset_ratio", "blur_sigma", "score_mode",
+                  "topk_fraction", "bank_vectors", "bank_mb", "synthetic_image_auroc", "subtle_image_auroc", "objective")
+
+
+def _recipe_table(hpo: pd.DataFrame) -> pd.DataFrame:
+    """The configuration deployed for every product (best label-free objective)."""
+    if hpo.empty or "objective" not in hpo:
+        return hpo
+    best = hpo.loc[hpo.groupby("category").objective.idxmax()]
+    return best[[c for c in RECIPE_COLUMNS if c in best]].round(4).reset_index(drop=True)
+
+
+def _ablation_table(hpo: pd.DataFrame) -> pd.DataFrame:
+    """Best label-free objective per value of each v2 design option (resolution, aggregation, rotated bank)."""
+    options = {"image_size": ("input resolution", lambda v: f"{int(v)} px"),
+               "pool_size": ("feature aggregation", lambda v: "3×3 average" if int(v) == 3 else "raw descriptors"),
+               "bank_rotations": ("good parts in the bank", lambda v: "as captured" if int(v) == 1 else f"{int(v)} orientations (90° steps)")}
+    if hpo.empty or "objective" not in hpo:
+        return pd.DataFrame()
+    rows = []
+    for option, (label, fmt) in options.items():
+        if option not in hpo:
+            continue
+        for category, group in hpo.groupby("category"):
+            best = group.groupby(option).objective.max().sort_values(ascending=False)
+            if len(best) < 2:
+                continue
+            rows.append({"product": category, "design choice": label,
+                         "objective per option (best first)": " · ".join(f"{fmt(k)}: {v:.4f}" for k, v in best.items()),
+                         "selected": fmt(best.index[0])})
+    return pd.DataFrame(rows)
 
 
 def _select_path(paths: list[str]):

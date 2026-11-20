@@ -96,17 +96,25 @@ class CoresetLadder:
 
     Greedy selection is incremental: its first k picks are exactly the size-k greedy coreset, so banks for
     ratios 1% / 5% / 10% are prefixes of a single run at the largest ratio (3 runs -> 1 in model selection).
+    Very large patch sets (e.g. good parts x 4 rotations) are first reduced to ``max_candidates`` random
+    patches: rotated views are highly redundant, and greedy cost grows with candidates x selections.
+    Bank sizes still follow the ratio of the *full* set (and the size cap).
     """
 
     def __init__(self, patch_grids: np.ndarray, max_ratio: float, max_bank_mb: float = 45.0,
-                 projection_dim: int = 128, seed: int = 0) -> None:
-        self.flat = np.asarray(patch_grids).reshape(-1, patch_grids.shape[-1])
+                 projection_dim: int = 128, seed: int = 0, max_candidates: int = 300_000) -> None:
+        flat = np.asarray(patch_grids).reshape(-1, patch_grids.shape[-1])
+        self.n_total = len(flat)
+        if max_candidates and len(flat) > max_candidates:
+            keep = np.sort(np.random.default_rng(seed).choice(len(flat), max_candidates, replace=False))
+            flat = flat[keep]
+        self.flat = flat
         self.max_bank_mb = max_bank_mb
-        n_max = coreset_size(len(self.flat), self.flat.shape[1], max_ratio, max_bank_mb)
-        self.order = greedy_coreset(self.flat.astype(np.float32, copy=False), n_max, projection_dim, seed)
+        n_max = min(len(flat), coreset_size(self.n_total, flat.shape[1], max_ratio, max_bank_mb))
+        self.order = greedy_coreset(flat.astype(np.float32, copy=False), n_max, projection_dim, seed)
 
     def bank(self, coreset_ratio: float) -> np.ndarray:
-        n = coreset_size(len(self.flat), self.flat.shape[1], coreset_ratio, self.max_bank_mb)
+        n = min(len(self.order), coreset_size(self.n_total, self.flat.shape[1], coreset_ratio, self.max_bank_mb))
         return np.ascontiguousarray(self.flat[self.order[:n]].astype(np.float16))
 
 

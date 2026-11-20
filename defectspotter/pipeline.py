@@ -358,7 +358,8 @@ class Pipeline:
                         ladder = CoresetLadder(train[pool], max(self.cfg.coreset_grid), self.cfg.max_bank_mb,
                                                seed=self.cfg.seed)
                         self.log(f"  {category} @{size}px pool={pool} rot={rotations}: greedy coreset of "
-                                 f"{len(ladder.order)} / {len(ladder.flat)} patches ({time.time() - t0:.0f}s)")
+                                 f"{len(ladder.order)} from {len(ladder.flat)} candidates / {ladder.n_total} patches "
+                                 f"({time.time() - t0:.0f}s)")
                         for ratio in self.cfg.coreset_grid:
                             t0 = time.time()
                             bank_vectors = ladder.bank(ratio)
