@@ -116,31 +116,37 @@ the brief's GenAI comparison, not as a deployable detector. Carpet's 50% CHECK l
 
 ## What the app does
 
+The app is a **presentation that ends in a live demonstration**: every page opens with a "what you see / how to read
+it" box, every chart has a caption, and the global settings (product, detector, production lot, threshold, CHECK band)
+apply everywhere.
+
 | Tab | What you can do |
 |---|---|
-| 📘 **Story** | The presentation: business problem, user, pipeline, methods, data, results, responsible AI, 2-minute demo guide |
-| 🔍 **Inspect** | Choose a product, upload / paste / webcam a part (or click a held-out sample): anomaly score, decision card, heat map + suspected regions, **all four detectors side by side**, VAE reconstruction, interactive pixel map, camera-health check, ground truth for samples, JSON record; ~1 fps **live camera** mode |
-| 📦 **Batch** | Inspect a tray/shift at once (or load a sample batch): decision tiles, score strip vs decision zones, summary table, overlay gallery, **CSV export** |
-| 🧑‍🔧 **Review** | **Human-in-the-loop** queue of CHECK decisions: confirm defect / release as good with a note → **audit log** (CSV) |
-| 🎚️ **Threshold & cost** | The **threshold slider trade-off** priced in money: false rejects vs escapes vs inspector load, score distributions, decision matrix, policy comparison, **apply the cost-optimal threshold computed without real defects** |
-| 📊 **EDA** | Dataset composition, defect types, acquisition statistics, defect sizes and locations, montages, synthetic & diffusion defects |
-| 🧠 **Models** | Image/pixel AUROC, AUPRO, AP with CIs, ROC curves, per-defect-type decisions, VAE vs PatchCore, qualitative panels, backbone study, latency, footprint, VAE training, HPO tables |
-| 🌗 **Drift** | Simulate lighting / focus / camera changes on a real part; 200-part production stream with **EWMA + PSI alarms**; drift sensitivity heat maps; monitoring policy |
-| 🆕 **New product** | **Few-shot onboarding**: build a detector for a new product (metal nut) from a handful of good images in seconds and inspect it |
-| ⚙️ **API** | `/inspect_part`, `/inspect_batch`, `/health` + model card |
+| 🏠 **Overview** | Problem, user, how it works, headline results, deployed operating point per product, business case, responsible AI |
+| 📊 **Data** | Where the data comes from (MVTec AD, pinned mirror, licence), the leakage-free split, EDA charts, synthetic & diffusion defects |
+| 🧠 **Models & training** | What is trained on what (backbone frozen, no head), backbone, PatchCore recipe per product, both VAEs with every parameter, training curves, baseline, calibration |
+| 📈 **Results** | Metric glossary, **confusion-matrix heat maps** of the deployed decisions, AUROC bars/ROC/heat map, per-defect-type decisions, qualitative heat maps, thresholds, latency |
+| 🎚️ **Threshold & cost** | The threshold trade-off priced in money; confusion matrix at your threshold; apply the cost-optimal threshold computed without real defects |
+| 🌗 **Drift & new lots** | Lighting/focus/camera simulation with the camera-health gate, 200-part stream with EWMA + PSI alarms, drift heat maps, **lot-shift test and live re-qualification** |
+| 🆕 **New product** | Few-shot onboarding of the metal nut from a handful of good images |
+| 📖 **Guide** | The complete guide (`docs/GUIDE.md`): every concept, model and parameter explained |
+| 🎬 **Live demo** (last) | Inspect a part (upload / webcam / samples) with decision card, heat map, all detectors, VAE reconstruction · Batch · Review queue (human in the loop, audit log) · API |
 
-The global controls (product, detector, **threshold**, **CHECK band**) apply to every tab.
+Images to upload during a demonstration, with their expected outcomes: [`demo_images/`](demo_images/README.md)
+(also as `demo_images.zip`).
 
 ## How it works
 
 ```mermaid
 flowchart LR
-  A[Good parts only] --> B[Frozen ResNet-18<br/>layer2+3 patch features<br/>ONNX ~11 MB, 2 outputs]
+  A[Good parts only] --> B[Frozen ResNet-18, not fine-tuned<br/>layer2+3 patch features<br/>ONNX ~11 MB, 2 outputs]
   B --> C[Per-product recipe<br/>size · 3x3/raw · rotations<br/>greedy coreset bank fp16]
-  A --> V[Convolutional VAE<br/>L1+SSIM, ONNX]
+  B --> F[Feature-space VAE<br/>spatial latent, ONNX]
+  A --> V[Pixel VAE v1<br/>L1+SSIM, ONNX]
   A --> M[ECC-aligned<br/>mean good image]
   P[Held-out good parts] --> S[Synthetic defects<br/>cut-paste · scratch · stain<br/>+ SD inpainting]
-  C --> K[kNN distance → heat map → score]
+  C --> K[kNN distance / reconstruction error → heat map → score]
+  F --> K
   V --> K
   M --> K
   S --> T[0-100 scale + cost-optimal<br/>PASS/CHECK/REJECT thresholds]
@@ -148,6 +154,7 @@ flowchart LR
   T --> D
   D -->|CHECK| H[Human review + audit log]
   D --> R[Camera-health gate + EWMA/PSI drift alarms]
+  R --> Q[Lot-shift test → re-qualification<br/>with good parts of the new lot]
 ```
 
 1. **PatchCore-style detector (primary).** A frozen ImageNet ResNet-18 (`layer2` + `layer3`) turns every image into a
@@ -158,8 +165,10 @@ flowchart LR
    All good training patches form a memory bank compressed by **greedy k-center coreset selection** (keeps
    rare-but-normal patches that random sampling would drop). A test patch's distance to its nearest normal patch is its
    anomaly; the map is upsampled and smoothed, the image score is the max / top-k mean.
-2. **Convolutional VAE (Generative AI).** Trained on good parts (L1 + SSIM + β·KL, 128-d latent). Reconstruction error
-   (pixel + structural) is a second, independent detector, compared head-to-head with PatchCore.
+2. **Variational autoencoders (Generative AI).** The **feature-space VAE** (v3) is trained on good parts' CNN feature
+   maps (384 × 28 × 28 → spatial latent 32 × 7 × 7 → back; feature MSE + β·KL) and its reconstruction error is the
+   generative detector. The **pixel VAE** (v1: 128 px images, 128-d latent, L1 + SSIM + β·KL) is kept for comparison and
+   for its reconstruction view — its blurry reconstructions show why working in feature space matters.
 3. **Classical baseline.** ECC alignment (translation / rigid / affine chosen on synthetic data) to a median good reference,
    then a per-pixel z-score against the mean and standard deviation of aligned good parts.
 4. **Synthetic defects choose the threshold.** Procedural **cut-paste / scratch / stain** defects and
@@ -218,6 +227,13 @@ Transparency matters for a detector that is supposed to work without defect labe
 4. **Default thresholds** come from the smoothed cost optimum on held-out good + capability-gated synthetic sets, with
    the CHECK band planned at ≤ 50% of inspector capacity. Real defects only enter the separate `real_oracle_cost` policy,
    chosen on the oracle split and evaluated, like every policy, on the disjoint operating split.
+
+## Guide
+
+[`docs/GUIDE.md`](docs/GUIDE.md) explains everything step by step: the problem, the data and split, the frozen
+ResNet-18 backbone (not fine-tuned, no head), PatchCore and the coreset, pose normalisation, both VAEs (concepts, every
+layer and parameter), synthetic and diffusion defects, calibration and the cost model, metrics, drift monitoring, lot
+re-qualification, few-shot onboarding, the demo script and a glossary. The same guide is the app's 📖 Guide tab.
 
 ## Run it locally
 

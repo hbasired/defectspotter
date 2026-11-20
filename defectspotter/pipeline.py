@@ -440,9 +440,9 @@ class Pipeline:
                                  score_mode=str(choice.score_mode),
                                  topk_fraction=float(choice.topk_fraction) if choice.score_mode == "topk" else 0.01,
                                  max_bank_mb=self.cfg.max_bank_mb, pool_size=int(choice.pool_size),
-                                 bank_rotations=int(choice.bank_rotations), align=bool(choice.align))
+                                 bank_rotations=int(choice.bank_rotations), align=bool(choice["align"]))
         self.log(f"  best objective {best.objective:.4f} ({int(best.image_size)}px pool={int(best.pool_size)} "
-                 f"rot={int(best.bank_rotations)} align={bool(best.align)} coreset={best.coreset_ratio}); deployed (parsimony, objective "
+                 f"rot={int(best.bank_rotations)} align={bool(best["align"])} coreset={best.coreset_ratio}); deployed (parsimony, objective "
                  f"{choice.objective:.4f}, {int(choice.bank_vectors)} bank vectors): {config}")
         return config
 
@@ -1058,7 +1058,11 @@ class Pipeline:
                 row[f"base_{key}"], row[f"requal_{key}"] = base[key], after[key]
             rows.append(row)
             dists[category] = {"current_lot_good_base": shift["current_lot_scores"], "good_loo": lot["good_scores"],
-                               "synthetic": lot["synthetic_scores"], "threshold": lot["threshold"], "band": lot["band"]}
+                               "synthetic": lot["synthetic_scores"], "threshold": lot["threshold"], "band": lot["band"],
+                               "operating_labels": labels.astype(int).tolist(),
+                               "operating_scores_base": np.round(base_scores, 3).tolist(),
+                               "operating_scores_requalified": np.round(lot_scores, 3).tolist(),
+                               "base_threshold": base_policy["threshold"], "base_band": base_policy["band"]}
             folder = self.cfg.artifacts / category / "requalified"
             if shift["shifted"]:
                 folder.mkdir(parents=True, exist_ok=True)

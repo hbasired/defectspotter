@@ -106,9 +106,9 @@ def problem_html() -> str:
 def pipeline_html() -> str:
     flow = [
         ("Good parts only", "train/good images per product"),
-        ("Frozen CNN", "ResNet-18 layer2+3 → 384-d patch features (ONNX)"),
-        ("Memory bank", "greedy coreset of normal patches (fp16)"),
-        ("Nearest neighbour", "distance of every patch to normal → heat map"),
+        ("Frozen CNN", "ResNet-18 layer2+3 → 384-d patch features (ONNX, not fine-tuned)"),
+        ("Memory bank + VAE", "greedy coreset of normal patches · feature-space VAE"),
+        ("Distance / error", "nearest-neighbour distance & reconstruction error → heat map"),
         ("Calibrate", "held-out good + synthetic defects → 0–100 scale & cost-optimal threshold"),
         ("Decide", "PASS · CHECK (human) · REJECT"),
         ("Monitor", "camera health + EWMA drift alarm"),
@@ -120,15 +120,16 @@ def pipeline_html() -> str:
  <div class="ds-card"><h3>PatchCore-style detector</h3>
   <p class="ds-note">A frozen ImageNet ResNet-18 (one shared 11 MB ONNX file) turns the image into a grid of patch
   descriptors (layer2 + layer3). Each product gets its own recipe, chosen without real defects: input resolution,
-  3×3 neighbourhood averaging for objects vs raw descriptors that keep fine weave detail for textures, and 90°-rotated
-  good parts in the bank for parts that arrive in any orientation (screws). Descriptors of all good training parts form a
+  3×3 neighbourhood averaging vs raw descriptors that keep fine weave detail, and pose normalisation for parts that
+  arrive in any orientation (every screw rotated to the same pose). Descriptors of all good training parts form a
   memory bank, compressed with greedy k-center <b>coreset</b> selection. A test patch far from every normal patch is
   anomalous; the largest distance is the image score. No training of the network is needed — onboarding a product takes
   seconds.</p></div>
- <div class="ds-card"><h3>Convolutional VAE (Generative AI)</h3>
-  <p class="ds-note">An encoder–decoder with a 128-d latent bottleneck is trained to reconstruct good parts (L1 + SSIM loss).
-  It cannot reproduce what it never saw, so the reconstruction error (pixel + structural) highlights defects. It is our
-  second, independent detector and is compared head-to-head with the feature method.</p></div>
+ <div class="ds-card"><h3>Variational autoencoders (Generative AI)</h3>
+  <p class="ds-note">A VAE learns to rebuild good parts through a small random latent code; it cannot rebuild a defect,
+  so the reconstruction error highlights it. The <b>feature-space VAE</b> (v3) rebuilds the CNN's feature map through a
+  32×7×7 spatial latent and is the generative detector; the <b>pixel VAE</b> (v1, 128-d latent, L1 + SSIM) is kept for
+  comparison — its blurry reconstructions show why working in feature space matters.</p></div>
  <div class="ds-card"><h3>Classical baseline</h3>
   <p class="ds-note">Images are aligned to a median good reference with OpenCV ECC (translation / rigid / affine chosen
   automatically), then compared with the per-pixel mean and standard deviation of good parts. Transparent and fast — and it
@@ -177,6 +178,9 @@ defect masks. Licence: <b>{MVTEC_LICENSE}</b>. Downloaded reproducibly from the 
 <th>Defect types (never used for training)</th></tr>{rows}</table>""")
 
 
+METHODS_SHOWN = ("patchcore", "fvae", "vae", "mean", "ensemble")
+
+
 def results_html(store: ReportStore) -> str:
     metrics = store.csv("metrics.csv")
     thresholds = store.csv("threshold_comparison.csv")
@@ -184,10 +188,10 @@ def results_html(store: ReportStore) -> str:
     if metrics.empty:
         return section("4 · Results", "<p>Run the training pipeline to populate results.</p>")
     table = "<table class='ds-table'><tr><th>Product</th>" + "".join(
-        f"<th>{METHOD_LABELS[m]}</th>" for m in ("patchcore", "vae", "mean", "ensemble")) + "</tr>"
+        f"<th>{METHOD_LABELS[m]}</th>" for m in METHODS_SHOWN if m in set(metrics.method)) + "</tr>"
     for category in metrics.category.unique():
         table += f"<tr><td><b>{category}</b></td>"
-        for method in ("patchcore", "vae", "mean", "ensemble"):
+        for method in [m for m in METHODS_SHOWN if m in set(metrics.method)]:
             row = metrics[(metrics.category == category) & (metrics.method == method)]
             if row.empty:
                 table += "<td>—</td>"
@@ -198,7 +202,12 @@ def results_html(store: ReportStore) -> str:
         table += "</tr>"
     table += "</table>"
     best = metrics.groupby("method").image_auroc.mean().sort_values(ascending=False)
-    if best.get("patchcore", 0) >= best.get("vae", 0):
+    if "fvae" in best and best.get("fvae", 0) > best.get("vae", 0):
+        verdict_title = "Features beat pixels — for memory and for generation"
+        verdict_text = ("The pixel VAE redraws a blurry part, so subtle defects hide in its own error. Working on the "
+                        "frozen CNN's features — as a memory of normal patches (PatchCore) or as a VAE that reconstructs "
+                        "the feature map — keeps the local detail that separates defects.")
+    elif best.get("patchcore", 0) >= best.get("vae", 0):
         verdict_title = "Feature memory beats reconstruction"
         verdict_text = ("The VAE reproduces a blurry version of every part, so subtle defects hide inside its own "
                         "reconstruction error; frozen CNN features keep the local detail PatchCore compares.")
@@ -232,10 +241,10 @@ def responsible_html() -> str:
  <div class="ds-card"><h3>Human in the loop</h3><p class="ds-note">CHECK is a first-class outcome, not an error. Every CHECK
  enters the review queue; the inspector's verdict and note are logged with the model score, threshold and version.
  Heat maps show <i>visual deviation</i>, not root cause.</p></div>
- <div class="ds-card"><h3>Lighting &amp; camera drift</h3><p class="ds-note">A dimming lamp, a dirty lens or a bumped camera
- shifts every image. A good-only model reads that as "unusual" and false rejects explode. We monitor camera-health signals
- (brightness, contrast, focus) and the score stream with EWMA control charts; an alarm triggers maintenance and re-qualification,
- never silent retraining.</p></div>
+ <div class="ds-card"><h3>Drift &amp; new lots</h3><p class="ds-note">A dimming lamp, a dirty lens, a bumped camera
+ or a new production lot shifts every image. A good-only model reads that as "unusual". We monitor camera-health signals
+ and the score stream with EWMA control charts; a lot change is confirmed with a statistical test on a few good parts and
+ handled by re-qualification — never by silent retraining.</p></div>
  <div class="ds-card"><h3>Limits &amp; licence</h3><p class="ds-note">The score is a ranking, not a defect probability.
  Synthetic defects are a calibration tool, not proof of coverage — validate every critical defect mode on plant data.
  MVTec AD is CC BY-NC-SA 4.0: research and teaching only.</p></div>

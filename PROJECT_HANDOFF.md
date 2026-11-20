@@ -276,18 +276,20 @@ Colab secret.
 
 ## 10. Next steps (prioritised backlog)
 
+**Done in session 3:** feature-space VAE (better GenAI detector), pose-normalised screws, label-free lot-shift test +
+re-qualification (carpet CHECK load ~50% → ~6%), UI rebuilt as a presentation ending in the live demo (intro boxes,
+captions, KPI tiles, confusion-matrix heat maps, model/training explainer), `docs/GUIDE.md`, `demo_images/`.
+
 **Done in session 2:** branches merged into `main`; Space deployed and smoke-tested; v2 detector (per-product label-free
 recipe; screw 0.935 → 0.983, carpet 0.880 → 0.940); consistent single run of all reports; smoothed thresholds with
 capacity headroom; synthetic defects placed on the part; diffusion defects usable (detectable) for calibration; CI.
 
 **P1 — improve results**
-1. **Re-qualification workflow for lot changes** (carpet): app action + pipeline stage that takes N good parts from the new
-   lot, adds them to the bank, regenerates synthetic defects *from them* and re-fits the scale/thresholds. A quick test
-   showed re-anchoring alone over-corrects when the synthetic defects still come from the old lot.
-2. Screw escapes (9% at the default point) are thin scratches/thread damage scoring inside the good range: try 320 px
-   tiles of the screw region (crop to the part with the foreground mask) or WRN-50 fp16 for screw only.
-3. VAE: perceptual (feature-space) reconstruction error or a spatial latent; today it adds nothing to the ensemble
-   (weight 1.0 = PatchCore only).
+1. Re-qualification in production: persist re-qualified models per lot (versioned), trigger the lot-shift test from the
+   CHECK-rate alarm, and add a re-validation report before a re-qualified model goes live.
+2. Remaining screw escapes are very faint thread damage: try aligned 320–384 px crops of the part (tighter field of view
+   after pose normalisation) or WRN-50 fp16 for screw only.
+3. Feature-space VAE: multi-scale (layer1+2+3) features and a perceptual/feature loss on the pixel VAE.
 4. More diffusion defects on a GPU (50+/product, more prompts); test on phone photos (domain shift).
 
 **P2 — productionise / extend**

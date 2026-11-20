@@ -12,10 +12,12 @@ cameras; treating the score as a calibrated defect probability.
 | Component | Details | Size |
 |---|---|---|
 | Feature extractor | ImageNet ResNet-18 (torchvision weights), `layer2` + `layer3`; two outputs (3×3 local average, raw descriptors); dynamic input size (224 / 288 px searched per product), ONNX opset 17 | ≈11 MB |
-| PatchCore memory bank | greedy k-center coreset of good-part patch descriptors (objects optionally with 90°-rotated copies of every good part), float16, one per product; recipe chosen label-free | ≤ 45 MB per product |
-| Convolutional VAE | 4-stage conv encoder, 1×1 squeeze, 128-d latent, mirrored decoder; L1 + SSIM + β·KL; ONNX | ≈9 MB per product |
+| PatchCore memory bank | greedy k-center coreset of good-part patch descriptors, float16, one per product; recipe chosen label-free (resolution, 3×3 vs raw descriptors, pose normalisation for elongated parts, rotated bank, coreset size, scoring) | 1–5 MB per product |
+| Feature-space VAE | convolutional VAE on the backbone's 384×28×28 feature map: 1×1 + two stride-2 conv encoder, spatial latent 32×7×7, mirrored decoder; feature MSE + 0.001·KL; 60 epochs; per-patch error map inside the ONNX graph | 1.44 M params, ≈5.5 MB per product |
+| Lot re-qualification | label-free Mann–Whitney lot-shift test on good parts of the current lot; bank += 10% coreset of their patches, synthetic defects generated from them, re-fitted scale and thresholds | shipped only where a lot change is detected |
+| Pixel VAE (v1, comparison) | 4-stage conv encoder, 1×1 squeeze, 128-d latent, mirrored decoder; L1 + SSIM + β·KL; ONNX | ≈7.4 MB per product |
 | Mean-image baseline | ECC-aligned per-pixel mean / std of good parts | <1 MB per product |
-| Ensemble | weighted PatchCore + VAE normalised scores and maps (weight chosen on full-strength + 50%-strength synthetic defects; ties keep PatchCore alone) | – |
+| Ensemble | weighted PatchCore + feature-space VAE normalised scores and maps (weight chosen on full-strength + 50%-strength synthetic defects; ties keep PatchCore alone) | – |
 
 ## Training data
 MVTec AD `bottle`, `screw`, `carpet` — **good training images only** (80% fit, 20% held out for calibration).
@@ -43,7 +45,9 @@ app's *Models* tab for the numbers of the shipped run.
 * Lot changes (a new carpet roll in MVTec's test set) shift good-part scores even inside the qualified acquisition range;
   re-qualify on good parts from the new lot. Model selection used test AUROC only to propose the v2 design options
   (disclosed in the README); per-product choices within them are label-free.
-* The VAE reconstructs blurry versions of parts, so subtle defects can hide in its own reconstruction error.
+* The pixel VAE reconstructs blurry versions of parts, so subtle defects hide in its own reconstruction error — replaced as
+  the generative detector by the feature-space VAE.
+* The backbone is ImageNet-pretrained and **frozen**: no fine-tuning, no classification head (there are no defect labels).
 * Heat maps show visual deviation, not root cause.
 
 ## Responsible-AI controls

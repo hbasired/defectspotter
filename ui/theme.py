@@ -103,8 +103,38 @@ CSS = f"""
 .ds-ok {{ background: #eaf7ea; border: 1px solid #b6e2b6; color: #006300; border-radius: 12px; padding: 10px 14px; }}
 .ds-section-title {{ font-size: 1.25rem; font-weight: 750; margin: 6px 0 2px; color: {INK}; }}
 .tab-nav button {{ font-weight: 600 !important; }}
-@media (max-width: 1100px) {{ .ds-kpis {{ grid-template-columns: repeat(3, minmax(0,1fr)); }}
+.ds-kpis.ds-kpis8 {{ grid-template-columns: repeat(4, minmax(0, 1fr)); }}
+.ds-hero .ds-kpis {{ grid-template-columns: repeat(4, minmax(0, 1fr)); }}
+.ds-intro {{ background: linear-gradient(90deg, #f4f8fe, #ffffff); border: 1px solid rgba(42,120,214,0.18);
+  border-left: 5px solid #2a78d6; border-radius: 14px; padding: 14px 18px; margin: 4px 0 10px; }}
+.ds-intro-title {{ font-size: 1.22rem; font-weight: 760; color: {INK}; margin-bottom: 4px; }}
+.ds-intro-what {{ color: {INK_2}; font-size: .95rem; line-height: 1.45; }}
+.ds-intro-how {{ color: {INK_2}; font-size: .88rem; margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(11,11,11,0.10); }}
+.ds-card-title {{ font-size: 1.08rem; font-weight: 740; color: {INK}; margin-bottom: 8px; }}
+.ds-subcard {{ background: {SURFACE}; border: 1px solid rgba(11,11,11,0.07); border-radius: 12px; padding: 12px 14px; font-size: .9rem; color: {INK_2}; }}
+.ds-subcard b {{ color: {INK}; }}
+.ds-caption {{ color: {INK_2}; font-size: .84rem; line-height: 1.4; background: #fbfbfa; border: 1px solid rgba(11,11,11,0.06);
+  border-radius: 10px; padding: 8px 12px; margin: -2px 0 8px; }}
+.ds-caption b {{ color: {INK}; }}
+.ds-nav {{ background: #ffffff; border: 1px solid rgba(11,11,11,0.08); border-radius: 16px; padding: 10px 14px; margin: 8px 0 4px; }}
+.ds-nav-title {{ font-size: .82rem; color: {MUTED}; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }}
+.ds-nav-row {{ display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 6px; }}
+.ds-nav-step {{ display: flex; gap: 6px; align-items: flex-start; background: {SURFACE}; border-radius: 10px; padding: 6px 8px; }}
+.ds-nav-step .i {{ font-size: 1.1rem; line-height: 1.2; }}
+.ds-nav-step b {{ display: block; font-size: .8rem; color: {INK}; }}
+.ds-nav-step span {{ display: block; font-size: .7rem; color: {MUTED}; line-height: 1.2; }}
+.ds-glossary {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 6px 0 10px; }}
+.ds-gloss {{ background: #ffffff; border: 1px solid rgba(11,11,11,0.08); border-radius: 12px; padding: 10px 12px; }}
+.ds-gloss b {{ display: block; color: {INK}; font-size: .9rem; margin-bottom: 3px; }}
+.ds-gloss span {{ color: {INK_2}; font-size: .8rem; line-height: 1.35; }}
+.ds-roles > div {{ background: {SURFACE}; border-radius: 10px; padding: 8px 10px; font-size: .84rem; color: {INK_2}; }}
+.ds-roles b {{ color: {INK}; display: block; }}
+.ds-section {{ font-size: 1.12rem; font-weight: 750; color: {INK}; margin: 14px 0 4px; padding-bottom: 4px;
+  border-bottom: 2px solid #e8f1fc; }}
+.ds-settings {{ border: 1px solid rgba(42,120,214,0.22) !important; border-radius: 16px !important; background: #fbfdff !important; }}
+@media (max-width: 1100px) {{ .ds-kpis, .ds-hero .ds-kpis {{ grid-template-columns: repeat(2, minmax(0,1fr)); }}
+  .ds-nav-row {{ grid-template-columns: repeat(3, minmax(0,1fr)); }} .ds-glossary {{ grid-template-columns: 1fr 1fr; }}
   .ds-grid3, .ds-grid4 {{ grid-template-columns: 1fr 1fr; }} }}
-@media (max-width: 700px) {{ .ds-kpis, .ds-grid2, .ds-grid3, .ds-grid4 {{ grid-template-columns: 1fr; }}
+@media (max-width: 700px) {{ .ds-kpis, .ds-hero .ds-kpis, .ds-grid2, .ds-grid3, .ds-grid4, .ds-glossary, .ds-nav-row {{ grid-template-columns: 1fr; }}
   .ds-hero h1 {{ font-size: 1.6rem; }} }}
 """
