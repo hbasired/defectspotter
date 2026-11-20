@@ -4,9 +4,10 @@ This file lets anyone (a teammate, another Claude account, another cloud/Colab/l
 without the original chat. Read it top to bottom once; then use §7 to set up and §10 to pick the next task.
 
 * **Repository:** https://github.com/hbasired/defectspotter
-* **Working branch:** `claude/optimistic-mccarthy-q7e5mh` (merge into `main` when reviewed — see §10, task P0-1)
-* **Planned public demo:** Hugging Face Space `bhkr0901/defectspotter` (not deployed yet — §9)
-* **Last updated:** 2026-11-19 (end of the first build session)
+* **Branch:** everything is merged into `main` (feature branches `claude/optimistic-mccarthy-q7e5mh` and
+  `claude/nice-einstein-ibh15o` are fully contained in it)
+* **Live demo:** https://huggingface.co/spaces/bhkr0901/defectspotter (direct app: https://bhkr0901-defectspotter.hf.space)
+* **Last updated:** 2026-11-20 (second build session: v2 detector, calibration fixes, full re-run, deployment)
 
 ---
 
@@ -52,7 +53,7 @@ the project is sound and adapt it to mirror real factory practice; deploy backen
 | O6 | Responsible AI | human review queue + audit log; camera-health gate; drift alarms; documentation | ✅ |
 | O7 | Stretch | drift monitor with alert; few-shot new product | ✅ |
 | O8 | Reproducibility | local + Colab run, tests, pinned data revision | ✅ |
-| O9 | Public demo URL | Hugging Face ZeroGPU Space live | ⏳ needs the owner's HF write token (§9) |
+| O9 | Public demo URL | Hugging Face ZeroGPU Space live | ✅ https://huggingface.co/spaces/bhkr0901/defectspotter |
 
 **In scope:** MVTec AD bottle / screw / carpet (+ metal_nut for few-shot), research/teaching use, CPU-friendly inference.
 **Out of scope:** commercial use of MVTec data, certified production control, PLC/MES integration, multi-camera fusion,
@@ -70,15 +71,19 @@ app.py → ui/app.py (Gradio) → defectspotter/runtime.py (ONNX Runtime + NumPy
 
 | Component | Key design decision | Why |
 |---|---|---|
-| Feature extractor | ResNet-18 `layer2+layer3`, 3×3 avg aggregation, 224 px, ONNX (10.6 MB) | backbone study: best accuracy inside the 10–20 MB budget (MobileNetV3 0.85 mean AUROC, EffNet-B0 0.91, **ResNet-18 0.93**, WRN-50 0.94 at 95 MB) |
+| Feature extractor | ResNet-18 `layer2+layer3`, ONNX (10.6 MB) with **two outputs** (3×3 average, raw descriptors) and dynamic input size | backbone study: best accuracy inside the 10–20 MB budget (MobileNetV3 0.85 mean AUROC, EffNet-B0 0.91, **ResNet-18 0.93**, WRN-50 0.94 at 95 MB) |
+| Per-product recipe (v2) | searched label-free: resolution 224/288, 3×3 vs raw descriptors, 1 or 4 orientations of good parts in the bank (objects), coreset 1/5/10%, blur, max/top-k | exploratory study: raw descriptors lift carpet 0.86 → 0.93; rotated banks lift screw 0.96 → 0.98 (random orientations); 288 px helps screw |
+| Search speed | greedy-coreset **ladder** (one greedy run → all ratios, its prefixes); random 300k-patch candidate pool for rotated sets; one NN search per bank, blur/score variants as post-processing | the v2 grid (~140 configs per object) in ~1 h on 4 CPUs |
 | Memory bank | **greedy k-center coreset** (JL projection to 128-d), float16 | the original notebook used random sampling; greedy keeps rare-but-normal patches |
-| Hyper-parameters | chosen on held-out good + **synthetic** defects only; objective = 0.4·img AUROC + 0.3·TPR@≤1%FPR + 0.3·pixel AUROC | synthetic AUROC alone saturates at 1.0 and cannot rank configs |
+| Hyper-parameters | chosen on held-out good + **synthetic** defects (full strength + **50% replays**) only; objective = 0.4·img AUROC + 0.3·TPR@≤1%FPR + 0.3·pixel AUROC | full-strength synthetics alone saturate and favour settings that only see conspicuous blobs |
+| Synthetic placement | object mask = Otsu on CIELAB distance to the border colour + morphology | v1 thresholded at a fixed percentile → ≥ 45% "foreground"; most screw defects landed on the empty tray |
 | VAE | 4-stage conv encoder → 1×1 squeeze → 128-d latent; L1 + 0.5(1−SSIM) + β·KL; ONNX ≈7.4 MB | small, sharper than MSE; no flips for screws (thread handedness) |
 | Baseline | ECC alignment (none/translation/euclidean/affine picked on synthetic data) + per-pixel z-score | transparent classical comparison |
 | Threshold calibration set | held-out good + synthetic defects at **25 / 50 / 100 % severity** (+ diffusion if present) | first run used full-strength synthetics only: screw real defects (median score 36) are far subtler than synthetic ones (75) → 35% escapes; the detection-limit sweep is label-free and mirrors inspection specs |
 | Score scale | 0–100, 25 = median held-out good, 75 = median synthetic defect | label-free, interpretable for operators |
 | Pixel scale | 0 = median good pixel, 50 = 99.9th pct good pixel, 100 = typical synthetic-defect pixel | localised, non-saturating heat maps |
-| Decision | PASS < t−b ≤ CHECK < t+b ≤ REJECT, (t,b) minimise expected cost s.t. CHECK ≤ 10% | mirrors a real line: prevalence 1%, escape 400, false reject 2, CHECK 0.30 (illustrative units) |
+| Decision | PASS < t−b ≤ CHECK < t+b ≤ REJECT, (t,b) minimise expected cost s.t. CHECK ≤ 10%, rates from **kernel-smoothed** score distributions | mirrors a real line: prevalence 1%, escape 400, false reject 2, CHECK 0.30 (illustrative units); smoothing stops the optimum snapping to single held-out parts |
+| Ensemble weight | chosen on full + 50% synthetic defects, scanned from PatchCore-only down (ties keep PatchCore) | v1 (full-strength only) put the screw ensemble far below PatchCore |
 | Health gate | brightness/contrast/sharpness z-score vs qualified images, \|z\|>4 → no automatic decision (CHECK) | lighting drift otherwise causes mass false rejects |
 | Drift | EWMA (λ=0.2, 3σ, 2-in-a-row) on winsorised scores and health signals + rolling PSI | SPC practice; health signals lead for lighting, score chart needed for geometry |
 | Few-shot | memory bank from k good images; threshold from leave-one-image-out scores | PatchCore needs no network training |
@@ -126,7 +131,6 @@ Filled in from `reports/` at the end of the run (see README "Results" and `pytho
 
 ```bash
 git clone https://github.com/hbasired/defectspotter.git && cd defectspotter
-git checkout claude/optimistic-mccarthy-q7e5mh           # until merged into main
 python -m venv .venv && source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt                            # app only (no torch)
 python app.py                                              # http://127.0.0.1:7860
@@ -138,7 +142,7 @@ Re-train (only needed after changing the method or data):
 ```bash
 pip install -r requirements-train.txt
 python scripts/download_data.py --dest data/mvtec_ad
-python scripts/train.py --data data/mvtec_ad --work-dir ../defectspotter_work           # all stages
+python scripts/train.py --data data/mvtec_ad --work-dir ../defectspotter_work --vae-epochs 120   # all stages (~2 h CPU)
 python scripts/train.py --data data/mvtec_ad --stages calibrate evaluate summary         # re-run selected stages
 pip install -r requirements-diffusion.txt
 python scripts/generate_diffusion_defects.py --data data/mvtec_ad --per-category 8 --steps 4 --guidance 1.0
@@ -168,15 +172,15 @@ Colab secret.
 6. **New product** — load 8 sample metal nuts → *Build model* (seconds) → inspect held-out nuts.
 7. **Models / EDA / API** for questions (ROC, per-defect, backbone study, latency, footprint, endpoints).
 
-## 9. Deployment status and how to finish it
+## 9. Deployment status
 
-* Not yet deployed. Run `python scripts/deploy_hf.py --space bhkr0901/defectspotter` with `HF_TOKEN` set (write scope).
-  The script stages the app + artifacts (~20 MB), writes the Space card (Gradio 6.32, Python 3.12, ZeroGPU), uploads and prints
-  `https://huggingface.co/spaces/bhkr0901/defectspotter` and `https://bhkr0901-defectspotter.hf.space`.
-* If ZeroGPU is refused (account < 30 days or unverified e-mail) the Space is created on default hardware and will not start
-  without PRO; alternatives: Colab `share=True` link (temporary), local `python app.py --share`, or host
-  `reports/DefectSpotter_report.html` as a free **static** Space / claude.ai page (presentation only, no live inference).
-* After deploying: open the Space, wait for the build, run one sample per product on the Inspect tab, check `/health`.
+* **Deployed** from a Claude Code session: https://huggingface.co/spaces/bhkr0901/defectspotter (Gradio, ZeroGPU hardware,
+  inference on CPU with ONNX Runtime). Smoke-tested through the API (`/inspect_part`, `/health`).
+* Redeploy after retraining or code changes: `HF_TOKEN=<write token> python scripts/deploy_hf.py --space bhkr0901/defectspotter`
+  (in a Claude session the token is saved once via the secure credential form; Claude can redeploy and smoke-test on request).
+* A Claude session cannot expose a public URL to a backend running inside its own sandbox (no inbound connections; tunnels
+  such as `--share` are blocked) — the Space is the always-on backend + frontend.
+* After deploying: open the Space, wait for the build (~1–2 min), run one sample per product on the Inspect tab, check `/health`.
 
 ## 10. Next steps (prioritised backlog)
 

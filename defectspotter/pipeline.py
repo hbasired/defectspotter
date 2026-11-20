@@ -337,95 +337,149 @@ class Pipeline:
                                     "scoring": [list(x) for x in scoring], "hpo_severity": self.cfg.hpo_severity,
                                     "max_bank_mb": self.cfg.max_bank_mb, "seed": self.cfg.seed}, sort_keys=True)
             done = self.cfg.work / "scores" / f"patchcore_{category}_search.json"
-            if (done.exists() and load_json(done, {}).get("signature") == signature
-                    and (self.cfg.artifacts / category / "patchcore_bank.npy").exists()):
-                hpo_rows.extend(load_json(done)["rows"])
+            previous = load_json(done, {}) if done.exists() else {}
+            if previous.get("signature") == signature:
+                rows = previous["rows"]
                 self.log(f"  {category}: search already finished with this search space - reusing it")
+            else:
+                rows = self._patchcore_search(category, scoring)
+                previous = {"signature": signature, "rows": rows}
+                save_json(previous, done)
+            config = self._select_patchcore(rows)
+            for row in rows:
+                row["selected"] = all(row[k] == v or (k == "topk_fraction" and row["score_mode"] == "max")
+                                      for k, v in self._row_key(config).items())
+            hpo_rows.extend(rows)
+            if (previous.get("selected") == config.to_dict()
+                    and (self.cfg.artifacts / category / "patchcore_bank.npy").exists()
+                    and (self.cfg.work / "scores" / f"patchcore_{category}.npz").exists()):
+                self.log(f"  {category}: selected recipe unchanged - keeping its bank and scores")
                 continue
-            first_row = len(hpo_rows)
-            syn_masks = [read_mask(p, MAP) for p in self.synthetic(category).mask_path]
-            _, sev_levels = self._severity_items(category)
-            subtle = np.isclose(sev_levels, self.cfg.hpo_severity)
-            best = None
-            for size in self.cfg.size_grid:
-                cal = self._feature_set(category, "cal", size)
-                syn = self._feature_set(category, "syn", size)
-                sev = self._feature_set(category, "sev", size)
-                for rotations in self._rotation_grid(category):
-                    train = self._feature_set(category, "train", size, rotations)
-                    for pool in self.cfg.pool_grid:
-                        t0 = time.time()
-                        ladder = CoresetLadder(train[pool], max(self.cfg.coreset_grid), self.cfg.max_bank_mb,
-                                               seed=self.cfg.seed)
-                        self.log(f"  {category} @{size}px pool={pool} rot={rotations}: greedy coreset of "
-                                 f"{len(ladder.order)} from {len(ladder.flat)} candidates / {ladder.n_total} patches "
-                                 f"({time.time() - t0:.0f}s)")
-                        for ratio in self.cfg.coreset_grid:
-                            t0 = time.time()
-                            bank_vectors = ladder.bank(ratio)
-                            bank = MemoryBank(bank_vectors)
-                            d_cal = patch_distances(cal[pool], bank)
-                            d_syn = patch_distances(syn[pool], bank)
-                            d_sev = patch_distances(sev[pool][subtle], bank)
-                            pixel_cache: dict = {}
-                            for blur in self.cfg.blur_grid:
-                                for mode, topk in scoring:
-                                    config = PatchCoreConfig(backbone=self.cfg.backbone, image_size=int(size),
-                                                             coreset_ratio=ratio, blur_sigma=blur, score_mode=mode,
-                                                             topk_fraction=topk, max_bank_mb=self.cfg.max_bank_mb,
-                                                             pool_size=int(pool), bank_rotations=int(rotations))
-                                    good_s, good_m = scores_from_distances(d_cal, config, MAP)
-                                    syn_s, syn_m = scores_from_distances(d_syn, config, MAP)
-                                    sev_s, _ = scores_from_distances(d_sev, config)
-                                    defects = np.r_[syn_s, sev_s]
-                                    labels = np.r_[np.zeros(len(good_s)), np.ones(len(defects))]
-                                    image_auc = safe_auroc(labels, np.r_[good_s, defects])
-                                    # AUROC saturates on synthetic data; the share of defects caught above the
-                                    # 99th percentile of good scores (TPR at <=1% false rejects) does not, and it
-                                    # is the operating requirement of a real line.
-                                    tpr_at_1pct = float(np.mean(defects > np.quantile(good_s, 0.99)))
-                                    if blur not in pixel_cache:  # maps do not depend on the image-score mode
-                                        pixel_cache[blur] = pixel_auroc(
-                                            [*good_m, *syn_m], [np.zeros((MAP, MAP), np.uint8)] * len(good_m) + syn_masks)
-                                    pix_auc = pixel_cache[blur]
-                                    bank_mb = len(bank) * bank.bank.shape[1] * 2 / 1024 ** 2
-                                    objective = (0.4 * image_auc + 0.3 * tpr_at_1pct + 0.3 * pix_auc
-                                                 - 1e-4 * np.log1p(bank_mb) - 1e-4 * (size / 224 - 1))
-                                    hpo_rows.append({
-                                        "category": category, "image_size": int(size), "pool_size": int(pool),
-                                        "bank_rotations": int(rotations), "coreset_ratio": ratio, "blur_sigma": blur,
-                                        "score_mode": mode, "topk_fraction": topk if mode == "topk" else None,
-                                        "bank_vectors": len(bank), "bank_mb": bank_mb,
-                                        "synthetic_image_auroc": safe_auroc(
-                                            np.r_[np.zeros(len(good_s)), np.ones(len(syn_s))], np.r_[good_s, syn_s]),
-                                        "subtle_image_auroc": safe_auroc(
-                                            np.r_[np.zeros(len(good_s)), np.ones(len(sev_s))], np.r_[good_s, sev_s]),
-                                        "combined_image_auroc": image_auc, "synthetic_tpr_at_1pct_fpr": tpr_at_1pct,
-                                        "synthetic_pixel_auroc": pix_auc, "objective": objective})
-                                    if best is None or objective > best[0]:
-                                        best = (objective, config, bank_vectors)
-                            self.log(f"  {category} @{size}px pool={pool} rot={rotations} coreset={ratio}: "
-                                     f"bank={len(bank)} best objective so far={best[0]:.4f} ({time.time() - t0:.0f}s)")
-                        del ladder
-            _, config, bank_vectors = best
-            self.log(f"  {category}: selected {config}")
-            folder = self.cfg.artifacts / category
-            folder.mkdir(parents=True, exist_ok=True)
-            np.save(folder / "patchcore_bank.npy", bank_vectors)
-            bank = MemoryBank(bank_vectors)
-            payload = {"config": config.to_dict()}
-            for name in ("cal", "syn", "test", "sev"):
-                feats = self._feature_set(category, name, config.image_size)[config.pool_size]
-                scores, maps = scores_from_distances(patch_distances(feats, bank), config, MAP)
-                payload[f"{name}_scores"] = scores
-                if name != "sev":
-                    payload[f"{name}_maps"] = maps.astype(np.float16)
-            payload["sev_levels"] = sev_levels
-            train = self._feature_set(category, "train", config.image_size)[config.pool_size][:24]
-            payload["train_insample_scores"] = scores_from_distances(patch_distances(train, bank), config)[0]
-            self._save_scores("patchcore", category, payload)
-            save_json({"signature": signature, "rows": hpo_rows[first_row:]}, done)
+            self._build_patchcore(category, config)
+            save_json({**previous, "selected": config.to_dict()}, done)
         pd.DataFrame(hpo_rows).to_csv(self.cfg.reports / "hpo_patchcore.csv", index=False)
+
+    PARSIMONY_TOLERANCE = 0.001  # objective differences below this are noise on ~50 good / ~250 synthetic parts
+
+    @staticmethod
+    def _row_key(config: PatchCoreConfig) -> dict:
+        return {"image_size": config.image_size, "pool_size": config.pool_size, "bank_rotations": config.bank_rotations,
+                "coreset_ratio": config.coreset_ratio, "blur_sigma": config.blur_sigma, "score_mode": config.score_mode,
+                "topk_fraction": config.topk_fraction}
+
+    def _select_patchcore(self, rows: list[dict]) -> PatchCoreConfig:
+        """Parsimony rule: among configurations within PARSIMONY_TOLERANCE of the best label-free objective,
+        deploy the one with the cheapest nearest-neighbour search (patches per image x bank vectors).
+
+        On a saturated product (bottle: every option within 0.0004) a strict arg-max picks the most
+        expensive recipe for no real gain; real improvements (e.g. rotated banks for screws) are larger.
+        """
+        frame = pd.DataFrame(rows)
+        near = frame[frame.objective >= frame.objective.max() - self.PARSIMONY_TOLERANCE].copy()
+        near["nn_cost"] = (near.image_size / 8.0) ** 2 * near.bank_vectors
+        choice = near.sort_values(["nn_cost", "objective"], ascending=[True, False]).iloc[0]
+        best = frame.loc[frame.objective.idxmax()]
+        config = PatchCoreConfig(backbone=self.cfg.backbone, image_size=int(choice.image_size),
+                                 coreset_ratio=float(choice.coreset_ratio), blur_sigma=float(choice.blur_sigma),
+                                 score_mode=str(choice.score_mode),
+                                 topk_fraction=float(choice.topk_fraction) if choice.score_mode == "topk" else 0.01,
+                                 max_bank_mb=self.cfg.max_bank_mb, pool_size=int(choice.pool_size),
+                                 bank_rotations=int(choice.bank_rotations))
+        self.log(f"  best objective {best.objective:.4f} ({int(best.image_size)}px pool={int(best.pool_size)} "
+                 f"rot={int(best.bank_rotations)} coreset={best.coreset_ratio}); deployed (parsimony, objective "
+                 f"{choice.objective:.4f}, {int(choice.bank_vectors)} bank vectors): {config}")
+        return config
+
+    def _build_patchcore(self, category: str, config: PatchCoreConfig) -> None:
+        """Build the deployed bank for the selected recipe and score every evaluation set with it."""
+        _, sev_levels = self._severity_items(category)
+        train = self._feature_set(category, "train", config.image_size, config.bank_rotations)[config.pool_size]
+        bank_vectors = CoresetLadder(train, config.coreset_ratio, self.cfg.max_bank_mb, seed=self.cfg.seed).bank(
+            config.coreset_ratio)
+        folder = self.cfg.artifacts / category
+        folder.mkdir(parents=True, exist_ok=True)
+        np.save(folder / "patchcore_bank.npy", bank_vectors)
+        bank = MemoryBank(bank_vectors)
+        payload = {"config": config.to_dict()}
+        for name in ("cal", "syn", "test", "sev"):
+            feats = self._feature_set(category, name, config.image_size)[config.pool_size]
+            scores, maps = scores_from_distances(patch_distances(feats, bank), config, MAP)
+            payload[f"{name}_scores"] = scores
+            if name != "sev":
+                payload[f"{name}_maps"] = maps.astype(np.float16)
+        payload["sev_levels"] = sev_levels
+        train1 = self._feature_set(category, "train", config.image_size)[config.pool_size][:24]
+        payload["train_insample_scores"] = scores_from_distances(patch_distances(train1, bank), config)[0]
+        self._save_scores("patchcore", category, payload)
+        self.log(f"  {category}: deployed bank {len(bank_vectors)} vectors ({bank_vectors.nbytes / 1024 ** 2:.1f} MB)")
+
+    def _patchcore_search(self, category: str, scoring: list) -> list[dict]:
+        hpo_rows: list[dict] = []
+        syn_masks = [read_mask(p, MAP) for p in self.synthetic(category).mask_path]
+        _, sev_levels = self._severity_items(category)
+        subtle = np.isclose(sev_levels, self.cfg.hpo_severity)
+        best = None
+        for size in self.cfg.size_grid:
+            cal = self._feature_set(category, "cal", size)
+            syn = self._feature_set(category, "syn", size)
+            sev = self._feature_set(category, "sev", size)
+            for rotations in self._rotation_grid(category):
+                train = self._feature_set(category, "train", size, rotations)
+                for pool in self.cfg.pool_grid:
+                    t0 = time.time()
+                    ladder = CoresetLadder(train[pool], max(self.cfg.coreset_grid), self.cfg.max_bank_mb,
+                                           seed=self.cfg.seed)
+                    self.log(f"  {category} @{size}px pool={pool} rot={rotations}: greedy coreset of "
+                             f"{len(ladder.order)} from {len(ladder.flat)} candidates / {ladder.n_total} patches "
+                             f"({time.time() - t0:.0f}s)")
+                    for ratio in self.cfg.coreset_grid:
+                        t0 = time.time()
+                        bank_vectors = ladder.bank(ratio)
+                        bank = MemoryBank(bank_vectors)
+                        d_cal = patch_distances(cal[pool], bank)
+                        d_syn = patch_distances(syn[pool], bank)
+                        d_sev = patch_distances(sev[pool][subtle], bank)
+                        pixel_cache: dict = {}
+                        for blur in self.cfg.blur_grid:
+                            for mode, topk in scoring:
+                                config = PatchCoreConfig(backbone=self.cfg.backbone, image_size=int(size),
+                                                         coreset_ratio=ratio, blur_sigma=blur, score_mode=mode,
+                                                         topk_fraction=topk, max_bank_mb=self.cfg.max_bank_mb,
+                                                         pool_size=int(pool), bank_rotations=int(rotations))
+                                good_s, good_m = scores_from_distances(d_cal, config, MAP)
+                                syn_s, syn_m = scores_from_distances(d_syn, config, MAP)
+                                sev_s, _ = scores_from_distances(d_sev, config)
+                                defects = np.r_[syn_s, sev_s]
+                                labels = np.r_[np.zeros(len(good_s)), np.ones(len(defects))]
+                                image_auc = safe_auroc(labels, np.r_[good_s, defects])
+                                # AUROC saturates on synthetic data; the share of defects caught above the
+                                # 99th percentile of good scores (TPR at <=1% false rejects) does not, and it
+                                # is the operating requirement of a real line.
+                                tpr_at_1pct = float(np.mean(defects > np.quantile(good_s, 0.99)))
+                                if blur not in pixel_cache:  # maps do not depend on the image-score mode
+                                    pixel_cache[blur] = pixel_auroc(
+                                        [*good_m, *syn_m], [np.zeros((MAP, MAP), np.uint8)] * len(good_m) + syn_masks)
+                                pix_auc = pixel_cache[blur]
+                                bank_mb = len(bank) * bank.bank.shape[1] * 2 / 1024 ** 2
+                                objective = (0.4 * image_auc + 0.3 * tpr_at_1pct + 0.3 * pix_auc
+                                             - 1e-4 * np.log1p(bank_mb) - 1e-4 * (size / 224 - 1))
+                                hpo_rows.append({
+                                    "category": category, "image_size": int(size), "pool_size": int(pool),
+                                    "bank_rotations": int(rotations), "coreset_ratio": ratio, "blur_sigma": blur,
+                                    "score_mode": mode, "topk_fraction": topk if mode == "topk" else None,
+                                    "bank_vectors": len(bank), "bank_mb": bank_mb,
+                                    "synthetic_image_auroc": safe_auroc(
+                                        np.r_[np.zeros(len(good_s)), np.ones(len(syn_s))], np.r_[good_s, syn_s]),
+                                    "subtle_image_auroc": safe_auroc(
+                                        np.r_[np.zeros(len(good_s)), np.ones(len(sev_s))], np.r_[good_s, sev_s]),
+                                    "combined_image_auroc": image_auc, "synthetic_tpr_at_1pct_fpr": tpr_at_1pct,
+                                    "synthetic_pixel_auroc": pix_auc, "objective": objective})
+                                if best is None or objective > best[0]:
+                                    best = (objective, config, bank_vectors)
+                        self.log(f"  {category} @{size}px pool={pool} rot={rotations} coreset={ratio}: "
+                                 f"bank={len(bank)} best objective so far={best[0]:.4f} ({time.time() - t0:.0f}s)")
+                    del ladder
+        return hpo_rows
 
     def _save_scores(self, method: str, category: str, payload: dict) -> None:
         folder = self.cfg.work / "scores"
