@@ -1149,7 +1149,7 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
         new_samples.select(_select_path(store.new_product_samples("test")), None, [new_image], **PRIVATE).then(
             inspect_new, [new_image, onboard_state], [new_card, new_overlay], **PRIVATE)
         new_image.upload(inspect_new, [new_image, onboard_state], [new_card, new_overlay], **PRIVATE)
-        health_btn.click(health, None, health_json, **PRIVATE)
+        health_btn.click(health, None, health_json, **({**PRIVATE, 'api_name': 'refresh_health'} if GRADIO_MAJOR >= 6 else PRIVATE))
 
         api_kwargs = {"api_visibility": "public"} if GRADIO_MAJOR >= 6 else {}
         api_btn.click(api_inspect, [api_image, api_category, api_method, api_threshold, api_band], [api_out, api_overlay],
