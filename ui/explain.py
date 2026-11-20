@@ -13,6 +13,8 @@ import pandas as pd
 from defectspotter.constants import (CATEGORY_INFO, METHOD_LABELS, MVTEC_CITATION, MVTEC_HF_REPO, MVTEC_HF_REVISION,
                                      MVTEC_LICENSE, MVTEC_OFFICIAL_URL)
 
+from defectspotter.operations import SOURCES, LineScenario, rates_from_scores
+
 from .store import ReportStore
 
 
@@ -94,18 +96,22 @@ def hero(store: ReportStore, inspector) -> str:
     frr = float(ops.false_reject_rate.mean()) if "false_reject_rate" in ops else float("nan")
     esc_rate = float(ops.escape_rate.mean()) if "escape_rate" in ops else float("nan")
     check = float(ops.review_rate.mean()) if "review_rate" in ops else float("nan")
-    model = store.json("cost_model.json")
-    manual = model.get("manual_100pct_per_1000", float("nan")) if model else float("nan")
-    ours = float(ops.cost.mean()) if "cost" in ops else float("nan")
+    from defectspotter.operations import LineScenario, manual_inspection_view, shift_view
+
+    scenario = LineScenario()
+    deployed = [shift_view(r, scenario) for _, model, r in real_world_rows(store, inspector) if "before" not in model]
+    manual = manual_inspection_view(scenario)["cost_per_shift"]
+    ours = float(np.mean([d["cost_per_shift"] for d in deployed])) if deployed else float("nan")
     saving = 1 - ours / manual if np.isfinite(ours) and manual else float("nan")
+    inspectors = float(np.mean([d["inspectors_needed"] for d in deployed])) if deployed else float("nan")
     kpis = [
         (num(auroc), "Detection quality", "image AUROC, mean of 3 products · 1.0 = perfect ranking of defects above good parts"),
         (num(pix), "Localisation quality", "pixel AUROC · does the heat map light up on the defect?"),
         (pct(frr), "False rejects", "good parts scrapped (operating test split, deployed thresholds)"),
         (pct(esc_rate), "Escapes", "defective parts passed (same split) · the expensive error"),
-        (pct(check), "Sent to a human", "share of all parts routed to CHECK (inspector capacity 10%)"),
+        (pct(check), "Sent to a human", f"share of all parts to CHECK · ≈ {inspectors:.1f} inspectors per 8-h shift at 2,500 parts/h"),
         (f"{lat:.0f} ms" if np.isfinite(lat) else "—", "Per part on a CPU", "upload → decision with ONNX Runtime"),
-        (pct(saving, 0), "Cheaper than 100% manual", "expected cost per part, illustrative cost model"),
+        (pct(saving, 0), "Cheaper than 100% manual", "cost per shift in USD (real-world view, humans catch 80%)"),
         (f"{summary.get('artifact_total_mb', float('nan')):.0f} MB", "All models", "ONNX backbone 10.6 MB + banks + VAEs"),
     ]
     tiles = "".join(f'<div class="ds-kpi"><div class="v">{esc(v)}</div><div class="l">{esc(l)}</div>'
@@ -405,3 +411,42 @@ def demo_script_html() -> str:
 
 def caption(text: str) -> str:
     return f'<div class="ds-caption">{text}</div>'
+
+
+# ------------------------------------------------------------------ real-world view
+def real_world_rows(store: ReportStore, inspector) -> list[tuple[str, str, dict]]:
+    """(product, model, rates) of the deployed operating points (+ carpet before re-qualification)."""
+    ops = store.csv("operating_metrics.csv")
+    req = store.csv("requalification.csv")
+    req_scores = store.json("requalification_scores.json")
+    rows = []
+    keys = ("false_reject_rate", "good_check_rate", "escape_rate", "defect_check_rate", "defect_reject_rate")
+    for category in inspector.categories:
+        part = ops[(ops.category == category) & (ops.method == "patchcore") & (ops.policy == "synthetic_cost")] if not ops.empty else ops
+        base = {k: float(part.iloc[0][k]) for k in keys} if len(part) else {}
+        shifted = (not req.empty and category in set(req.category) and bool(req[req.category == category].iloc[0].deployed))
+        if shifted and category in req_scores:
+            d = req_scores[category]
+            rows.append((category, "trained-lot model (before re-qualification)", base))
+            rows.append((category, "re-qualified for the current lot (deployed)",
+                         rates_from_scores(d["operating_scores_requalified"], d["operating_labels"], d["threshold"], d["band"])))
+        elif base:
+            rows.append((category, "deployed PatchCore", base))
+    return rows
+
+
+def real_world_html(scenario: LineScenario | None = None) -> str:
+    sc = scenario or LineScenario()
+    links = "".join(f"<li>{esc(text)}" + (f" — <a href='{url}' target='_blank'>{esc(url)}</a>" if url else "") + "</li>"
+                    for text, url in SOURCES.values())
+    return card("Real-world view: what one shift looks like", f"""
+<p class="ds-note">The rates measured on the test images are turned into a real production shift. <b>Scenario</b>
+(editable in <i>Threshold &amp; cost</i>): one inspection station, <b>{sc.parts_per_hour:,.0f} parts/hour × {sc.shift_hours:.0f} h =
+{sc.parts_per_shift:,.0f} parts per shift</b>, <b>{100 * sc.defect_rate:.0f}% defective</b>; a human check of a flagged part takes
+<b>{sc.seconds_per_check:.0f} s</b> at <b>{sc.inspector_cost_per_hour:.0f} USD/hour</b> fully loaded
+(= <b>{sc.cost_per_check:.2f} USD per check</b>; one inspector handles {sc.checks_per_inspector_hour:.0f} checks/hour);
+inspectors catch <b>{100 * sc.human_detection_rate:.0f}%</b> of the defects they are shown; a scrapped good part costs
+<b>{sc.cost_false_reject:.0f} USD</b>; a defect reaching the customer costs <b>{sc.cost_escape:.0f} USD</b>.</p>
+<ul class="ds-small">{links}</ul>
+<p class="ds-small">The deployed thresholds were calibrated assuming every flagged defect is caught by the inspector;
+the shift view applies the real-world 80% human hit rate, so "defects escaping" includes the ones a human misses.</p>""", "🏭")

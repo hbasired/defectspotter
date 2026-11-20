@@ -381,6 +381,38 @@ recipe) 1.000 / 0.983 / 0.940 → v3 (pose-normalised screws) 1.000 / 0.997 / 0.
 screw (p = 0.86), so its qualification model stays deployed even though re-qualifying it would also have lowered its
 escapes on the test split — the decision rule is fixed in advance, not picked from test results.
 
+## 10c. Real-world numbers: one production shift
+
+Rates are easier to judge as counts. The app's Overview turns the deployed operating points into **one 8-hour shift** of
+a realistic inspection station (all values editable in *Threshold & cost*):
+
+| assumption | value | source / reasoning |
+|---|---|---|
+| line speed | 2,500 parts/hour → 20,000 parts per shift | a mid-speed station |
+| defect rate | 1% → 200 defective parts per shift | typical first-pass yield |
+| human check of a flagged part | 36 s → 100 checks per inspector-hour | pick the part, look with the heat map, decide |
+| inspector cost | 30 USD/hour fully loaded → **0.30 USD per check** | BLS median pay for quality-control inspectors 22.82 USD/h (2024) + ~30% benefits/overhead |
+| inspector hit rate | 80% of the defects they are shown | industry-average visual-inspection hit rate (See, *Human Factors* 2015) |
+| false reject | 2 USD | value of a scrapped mid-value part |
+| escape | 400 USD | 1-10-100 rule of cost of quality (Labovitz, Chang & Rosansky 1992): a defect costs far more at the customer; a customer complaint ≈ 1,000× the inspection cost |
+
+One shift at the deployed thresholds:
+
+| product / model | parts sent to a human | inspectors needed | defects escaping | cost per shift |
+|---|---|---|---|---|
+| bottle | 10 | 0.0 | 2.0 | 783 USD |
+| screw | 44 | 0.1 | 21.5 | 8,628 USD |
+| carpet, trained-lot model (before re-qualification) | 9,925 | **12.4** | 15.4 | 9,153 USD |
+| carpet, re-qualified for the current lot (deployed) | 1,132 | **1.4** | 23.9 | 9,883 USD |
+| 100% manual inspection (status quo) | 20,000 | 25 | 40 | 22,000 USD |
+
+**Was lowering the human workload right?** Yes. Before re-qualification carpet would have needed about 12 inspectors per
+shift; a station has 2–3, so most flagged parts would simply never be looked at (and an inspector who sees good parts
+all day stops looking carefully). Re-qualification brings it to 1.4 inspectors. The honest price is about 8 more
+defective carpet sections escaping per shift (24 instead of 15) — still far better than 100% manual inspection, which
+needs 25 inspectors and misses 40 defects per shift. If a plant can staff more inspectors, raising *Inspector capacity*
+in the threshold lab widens the CHECK band and buys those escapes back.
+
 ## 11. Responsible operation and monitoring
 
 * **Human in the loop:** every CHECK goes to the review queue; the inspector's verdict and note go into an audit log.

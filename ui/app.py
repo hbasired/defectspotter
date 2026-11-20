@@ -21,6 +21,7 @@ from defectspotter.data import read_rgb, to_rgb_array
 from defectspotter.decision import (CostModel, calibration_sets, cost_curve, decide_many, default_policy,
                                     operating_metrics, reference_costs, select_threshold_by_cost)
 from defectspotter.drift import DRIFT_KINDS, apply_drift
+from defectspotter.operations import LineScenario, rates_from_scores, shift_table, shift_view
 from defectspotter.runtime import Inspector
 from defectspotter.viz import fit_display, overlay
 
@@ -301,9 +302,14 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
                 queue_frame(queue), pending_choices(queue), _queue_stats(queue))
 
     # --------------------------------------------------------- threshold lab
-    def lab(category, method, threshold, band, prevalence, c_escape, c_fr, c_review, capacity, per_day, eval_set):
+    def lab(category, method, threshold, band, prevalence, c_escape, c_fr, seconds, wage, capacity, per_hour, detection,
+            eval_set):
+        scenario = LineScenario(parts_per_hour=float(per_hour), defect_rate=prevalence / 100, seconds_per_check=float(seconds),
+                                inspector_cost_per_hour=float(wage), human_detection_rate=detection / 100,
+                                cost_false_reject=float(c_fr), cost_escape=float(c_escape))
         costs = CostModel(defect_prevalence=prevalence / 100, cost_escape=c_escape, cost_false_reject=c_fr,
-                          cost_review=c_review, review_capacity=capacity / 100, parts_per_day=int(per_day))
+                          cost_review=scenario.cost_per_check, review_capacity=capacity / 100,
+                          parts_per_day=int(scenario.parts_per_shift))
         g = store.score_groups(category, method)
         if not g:
             msg = charts.empty("No stored scores for this detector")
@@ -320,15 +326,26 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
         best = select_threshold_by_cost(scores, labels, costs, bands=(float(band),),
                                         smooth=not eval_set.startswith("Operating"))
         refs = reference_costs(costs)
-        per_year = m["expected_cost_per_1000"] / 1000 * costs.parts_per_day * 365
-        manual_year = refs["manual_100pct_per_1000"] / 1000 * costs.parts_per_day * 365
+        shift = shift_view(rates_from_scores(scores, labels, float(threshold), float(band)), scenario)
+        from defectspotter.operations import manual_inspection_view
+        manual = manual_inspection_view(scenario)
+        available = capacity / 100 * scenario.parts_per_shift * scenario.seconds_per_check / 3600 / scenario.shift_hours
         tiles = _stat_tiles([
             (f"{100 * m['false_reject_rate']:.1f}%", "false-reject rate (good → REJECT)", None),
             (f"{100 * m['escape_rate']:.1f}%", "escape rate (defect → PASS)", None),
             (f"{100 * m['review_rate']:.1f}%", "of production → CHECK (human)", None),
-            (f"{m['expected_cost_per_1000']:,.0f}", "expected cost / 1,000 parts", None),
-            (f"{per_year:,.0f}", f"per year at {costs.parts_per_day:,} parts/day", None),
-            (f"{100 * (1 - per_year / manual_year):.0f}%" if manual_year else "—", "saving vs 100% manual inspection", None),
+            (f"{shift['to_human']:,.0f}", f"parts to a human per {scenario.shift_hours:.0f}-h shift", None),
+            (f"{shift['inspectors_needed']:.1f}", f"inspectors needed (capacity {capacity:.0f}% ≈ {available:.1f})",
+             "REJECT" if shift["inspectors_needed"] > available else None),
+            (f"{shift['defects_escaping']:.1f}", "defects escaping per shift (incl. human misses)", None),
+        ]) + _stat_tiles([
+            (f"{shift['false_rejects']:,.0f}", "good parts scrapped per shift", None),
+            (f"${scenario.cost_per_check:.2f}", f"per human check ({seconds:.0f} s × ${wage:.0f}/h)", None),
+            (f"${shift['cost_per_shift']:,.0f}", "expected cost per shift", None),
+            (f"${shift['cost_per_year']:,.0f}", f"per year ({scenario.shifts_per_year} shifts)", None),
+            (f"{100 * (1 - shift['cost_per_shift'] / manual['cost_per_shift']):.0f}%" if manual["cost_per_shift"] else "—",
+             "saving vs 100% manual inspection", None),
+            (f"{manual['inspectors_needed']:.0f}", "inspectors for 100% manual inspection", None),
         ])
         groups = {"good parts (test)": g["test_scores"][(g["test_labels"] == 0)],
                   "defective parts (test)": g["test_scores"][(g["test_labels"] == 1)],
@@ -350,9 +367,9 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
         return (tiles, dist, charts.rate_curves(curve, float(threshold)),
                 charts.cost_curve(curve, float(threshold), best["threshold"], refs), matrix, pd.DataFrame(rows))
 
-    def apply_optimal(category, method, band, prevalence, c_escape, c_fr, c_review, capacity):
+    def apply_optimal(category, method, band, prevalence, c_escape, c_fr, seconds, wage, capacity):
         costs = CostModel(defect_prevalence=prevalence / 100, cost_escape=c_escape, cost_false_reject=c_fr,
-                          cost_review=c_review, review_capacity=capacity / 100)
+                          cost_review=float(wage) * float(seconds) / 3600, review_capacity=capacity / 100)
         g = store.score_groups(category, method)
         # Same label-free recipe as the deployed default (decision.default_policy).
         best = default_policy(store.calibration_groups(g), costs)
@@ -621,6 +638,14 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
                                                        "review_rate": "all parts → CHECK", "cost": "cost / 1,000 parts"}),
                                  label="Deployed operating point per product (operating test split, never used for any choice)",
                                  interactive=False)
+                gr.HTML(ex.real_world_html())
+                gr.Dataframe(shift_table(ex.real_world_rows(store, inspector)), interactive=False,
+                             label="One 8-hour shift at the deployed thresholds (counts per shift; USD)")
+                _cap("<b>Why lowering the human workload was right:</b> before re-qualification carpet would have needed about "
+                     "12 inspectors per shift — a line has 2–3 — so most flagged parts would never be looked at. After "
+                     "re-qualification it needs about 1.4 inspectors; the price is a few more defective carpet sections "
+                     "escaping per shift, shown honestly in the last columns. 100% manual inspection needs 25 inspectors "
+                     "and still misses about 40 defects per shift.")
                 with gr.Row():
                     with gr.Column():
                         gr.Plot(charts.threshold_dumbbell(store.csv("threshold_comparison.csv"), "patchcore"), show_label=False)
@@ -804,14 +829,21 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
                                  "reaching the customer). Set the economics of your line and see the expected cost move; "
                                  "<b>Apply</b> recomputes the cost-optimal threshold from good + synthetic parts only.",
                                  "Use the global threshold and CHECK-band sliders at the top; all charts update."))
+                gr.Markdown("**Your line, in real-world units** (defaults: BLS median inspector pay 22.82 USD/h + overhead "
+                            "≈ 30 USD/h; 36 s per human check; inspectors catch ~80% of what they are shown; 1-10-100 rule "
+                            "for the cost of a defect reaching the customer — see the Overview for sources).")
                 with gr.Row():
                     prevalence = gr.Slider(0.1, 10, value=1.0, step=0.1, label="Defect rate (%)", info="share of defective parts")
-                    c_escape = gr.Number(400, label="Cost of an escape (per part)")
-                    c_fr = gr.Number(2, label="Cost of a false reject (per part)")
-                    c_review = gr.Number(0.30, label="Cost of a human CHECK (per part)")
+                    per_hour = gr.Number(2500, label="Line speed (parts / hour)", precision=0, info="8-hour shift")
+                    c_escape = gr.Number(400, label="Cost of an escape (USD)", info="defect reaching the customer")
+                    c_fr = gr.Number(2, label="Cost of a false reject (USD)", info="value of a scrapped part")
+                with gr.Row():
+                    seconds = gr.Number(36, label="Seconds per human check", info="flagged part: pick, look, decide")
+                    wage = gr.Number(30, label="Inspector cost (USD / hour)", info="fully loaded")
+                    detection = gr.Slider(50, 100, value=80, step=1, label="Inspector hit rate (%)",
+                                          info="defects caught when shown")
                     capacity = gr.Slider(1, 30, value=10, step=1, label="Inspector capacity (% of parts)",
                                          info="planned at ≤ 50% (headroom for drift)")
-                    per_day = gr.Number(20000, label="Parts per day", precision=0)
                 with gr.Row():
                     eval_set = gr.Radio(["Operating test split (real defects)", "Calibration (good + synthetic defects)"],
                                         value="Operating test split (real defects)", label="Evaluate on", scale=3)
@@ -1108,13 +1140,15 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
         release_btn.click(lambda q, a, c, n: decide_item(q, a, c, n, "released as good"), [queue_state, audit_state, pending, note],
                           review_outputs, **PRIVATE)
 
-        lab_inputs = [category, method, threshold, band, prevalence, c_escape, c_fr, c_review, capacity, per_day, eval_set]
+        lab_inputs = [category, method, threshold, band, prevalence, c_escape, c_fr, seconds, wage, capacity, per_hour, detection,
+                      eval_set]
         lab_outputs = [lab_tiles, lab_dist, lab_rates, lab_cost, lab_matrix, lab_policies]
         gr.on([category.change, method.change, threshold.change, band.change, prevalence.change, c_escape.change,
-               c_fr.change, c_review.change, capacity.change, per_day.change, eval_set.change, demo.load],
+               c_fr.change, seconds.change, wage.change, capacity.change, per_hour.change, detection.change,
+               eval_set.change, demo.load],
               lab, lab_inputs, lab_outputs, trigger_mode="always_last", **PRIVATE)
         gr.on([category.change, method.change, demo.load], capability_table, [category, method], [lab_capability], **PRIVATE)
-        apply_btn.click(apply_optimal, [category, method, band, prevalence, c_escape, c_fr, c_review, capacity],
+        apply_btn.click(apply_optimal, [category, method, band, prevalence, c_escape, c_fr, seconds, wage, capacity],
                         [threshold, band], **PRIVATE)
 
         signal.change(lambda s: charts.acquisition_box(store.csv("image_stats.csv"), s), [signal], [eda_box], **PRIVATE)

@@ -172,3 +172,20 @@ def test_pose_alignment_keeps_part_in_canvas_and_maps_back_exactly():
     w = back / back.sum()
     expected = ((p[1] + 0.5) * size / 512 - 0.5, (p[0] + 0.5) * size / 512 - 0.5)
     assert abs((w * yy).sum() - expected[0]) < 0.05 and abs((w * xx).sum() - expected[1]) < 0.05
+
+
+# ------------------------------------------------------------------ real-world shift view
+def test_shift_view_turns_rates_into_counts_people_and_money():
+    from defectspotter.operations import LineScenario, manual_inspection_view, shift_view
+
+    sc = LineScenario(parts_per_hour=1000, shift_hours=8, defect_rate=0.01, seconds_per_check=36,
+                      inspector_cost_per_hour=30, human_detection_rate=0.8, cost_false_reject=2, cost_escape=400)
+    assert sc.parts_per_shift == 8000 and sc.cost_per_check == pytest.approx(0.30)
+    v = shift_view({"false_reject_rate": 0.0, "good_check_rate": 0.1, "escape_rate": 0.05,
+                    "defect_check_rate": 0.2, "defect_reject_rate": 0.75}, sc)
+    assert v["to_human"] == pytest.approx(7920 * 0.1 + 80 * 0.2)               # 808 parts to a human
+    assert v["inspector_hours"] == pytest.approx(808 * 36 / 3600)
+    assert v["defects_escaping"] == pytest.approx(80 * 0.05 + 80 * 0.2 * 0.2)   # passed + missed by the human
+    assert v["cost_per_shift"] == pytest.approx(7.2 * 400 + 808 * 0.30)
+    m = manual_inspection_view(sc)
+    assert m["inspectors_needed"] == pytest.approx(10) and m["defects_escaping"] == pytest.approx(16)

@@ -249,6 +249,14 @@ Transparency matters for a detector that is supposed to work without defect labe
    the CHECK band planned at ≤ 50% of inspector capacity. Real defects only enter the separate `real_oracle_cost` policy,
    chosen on the oracle split and evaluated, like every policy, on the disjoint operating split.
 
+## Real-world numbers
+
+The Overview turns the deployed decisions into **one 8-hour shift** (2,500 parts/hour, 1% defective; human check 36 s at
+30 USD/h ≈ BLS median inspector pay + overhead; inspectors catch ~80% of what they are shown; escape 400 USD per the
+1-10-100 cost-of-quality rule — all editable in *Threshold & cost*). Carpet before re-qualification would need **12.4
+inspectors per shift**; after, **1.4** (bottle 0.0, screw 0.1), against **25 inspectors** for 100% manual inspection, which
+still misses ~40 defects per shift. Details and sources: [`docs/GUIDE.md`](docs/GUIDE.md#10c-real-world-numbers-one-production-shift).
+
 ## Guide
 
 [`docs/GUIDE.md`](docs/GUIDE.md) explains everything step by step: the problem, the data and split, the frozen
