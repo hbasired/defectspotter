@@ -43,6 +43,7 @@ class FeatureVAEConfig:
     hflip: bool = True             # feature-map flip augmentation (off for screws: thread handedness)
     blur_sigma: float = 4.0
     topk_fraction: float = 0.01
+    std_floor: float = 0.1         # per-channel std >= 10% of the median channel std (dead ReLU channels have std 0)
     history: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -113,7 +114,10 @@ def train_fvae(train_features: np.ndarray, config: FeatureVAEConfig, seed: int =
     n_val = max(2, int(round(len(x) * val_fraction)))
     val, fit = x[order[:n_val]], x[order[n_val:]]
     mean = fit.mean(dim=(0, 2, 3), keepdim=True)
-    std = fit.std(dim=(0, 2, 3), keepdim=True) + 1e-6
+    std = fit.std(dim=(0, 2, 3), keepdim=True)
+    # Dead channels (ReLU features that are always 0 on good parts) have std 0; dividing by ~0 would turn the tiniest
+    # activation on a test part into an astronomically large "error". Floor the std at a fraction of the median.
+    std = std.clamp(min=float(config.std_floor * std.median()) + 1e-6)
     fit, val = (fit - mean) / std, (val - mean) / std
     model = build_fvae(config).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate, weight_decay=1e-5)
@@ -158,7 +162,7 @@ def train_fvae(train_features: np.ndarray, config: FeatureVAEConfig, seed: int =
 
 
 def export_fvae_onnx(model, mean: np.ndarray, std: np.ndarray, config: FeatureVAEConfig, path: str | Path,
-                     opset: int = 17) -> dict:
+                     opset: int = 17, examples: np.ndarray | None = None) -> dict:
     """Export features (B,C,h,w) -> per-patch squared reconstruction error (B,h,w), normalisation included."""
     import onnxruntime as ort
     import torch
@@ -184,10 +188,12 @@ def export_fvae_onnx(model, mean: np.ndarray, std: np.ndarray, config: FeatureVA
                       dynamic_axes={"features": {0: "batch"}, "error_map": {0: "batch"}}, opset_version=opset,
                       do_constant_folding=True, dynamo=False)
     session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+    if examples is not None:  # verify on real feature maps (random inputs are far outside the data range)
+        example = torch.from_numpy(np.ascontiguousarray(np.asarray(examples[:4], np.float32).transpose(0, 3, 1, 2)))
     with torch.inference_mode():
         expected = wrapper(example).numpy()
     got = session.run(None, {"features": example.numpy()})[0]
-    error = float(np.max(np.abs(expected - got)))
+    error = float(np.max(np.abs(expected - got)) / max(1.0, float(np.max(np.abs(expected)))))  # relative to the map scale
     parameters = int(sum(p.numel() for p in model.parameters()))
     return {"path": path.name, "size_mb": path.stat().st_size / 1024 ** 2, "parameters": parameters,
             "max_abs_error_vs_torch": error, "verified": bool(error < 1e-3), "opset": opset}

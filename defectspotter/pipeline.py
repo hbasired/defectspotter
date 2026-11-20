@@ -657,7 +657,7 @@ class Pipeline:
                                           progress=lambda r: self.log(f"    epoch {r['epoch']:3d} train={r['train_loss']:.4f} "
                                                                       f"val={r['val_loss']:.4f}")
                                           if r["epoch"] % 10 == 0 or r["epoch"] == 1 else None)
-            report = export_fvae_onnx(model, mean, std, config, folder / "fvae.onnx")
+            report = export_fvae_onnx(model, mean, std, config, folder / "fvae.onnx", examples=train[:4])
             self.log(f"  exported {report}")
             session = ort.InferenceSession(str(folder / "fvae.onnx"), providers=["CPUExecutionProvider"])
             payload = {"config": {**config.to_dict(), "parameters": report["parameters"]}}
