@@ -211,8 +211,9 @@ Cost model: prevalence 1%, escape 400, false reject 2, CHECK 0.30; no inspection
 
 * Python 3.13 (works 3.10+), torch 2.15 CPU, torchvision 0.29, onnxruntime 1.32, gradio 6.32, plotly 7.1 (plotly.js 4.1.1),
   numpy 2.5, pandas 3.1, OpenCV 5.1, diffusers 0.43, transformers 5.23, peft 0.22.
-* Hardware used: 4 vCPU, 15 GB RAM, no GPU. Full pipeline ≈ 1 h; VAE ≈ 3.5 s/epoch/product; diffusion ≈ 30–60 s per
-  image on CPU with LCM (seconds on a GPU).
+* Hardware used: 4 vCPU, 15 GB RAM, no GPU. Full v2 pipeline ≈ 2.5 h (PatchCore search ≈ 50 min, VAE 120 epochs ≈ 5 s/epoch/
+  product, drift ≈ 9 min); diffusion ≈ 17 s per image on CPU with LCM-LoRA (seconds on a GPU). Cloud sessions may restart
+  the container: stages, the PatchCore search and VAE training are resumable per product (re-run the same command).
 * Data: `foersben/mvtec-ad` @ `c75b39616f84db43677bcc8228caaafaf5096d7f` (an earlier pin pointed at a partial upload).
 * Hugging Face rules (Nov 2026, official docs): free accounts (verified e-mail, > 30 days old) may host **2 Gradio Spaces on
   ZeroGPU**; CPU-basic Gradio/Docker Spaces need PRO; static Spaces are free; Streamlit is only available via Docker.
