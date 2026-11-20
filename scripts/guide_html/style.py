@@ -70,10 +70,11 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.62 syst
   "Helvetica Neue", Arial, sans-serif; }
 a { color: var(--accent-ink); text-decoration-thickness: 1px; text-underline-offset: 2px; }
 code, pre, kbd, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
-code { background: var(--code-bg); border: 1px solid var(--line); border-radius: 5px; padding: .05em .35em; font-size: .88em; }
+code { background: var(--code-bg); border: 1px solid var(--line); border-radius: 5px; padding: .05em .35em; font-size: .88em;
+  overflow-wrap: anywhere; }
 pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; overflow-x: auto;
   font-size: 13.5px; line-height: 1.5; position: relative; margin: 14px 0; }
-pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+pre code { background: none; border: 0; padding: 0; font-size: inherit; overflow-wrap: normal; }
 .copy { position: absolute; top: 8px; right: 8px; font: 12px system-ui, sans-serif; padding: 3px 9px; border-radius: 6px;
   border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink-2); cursor: pointer; }
 .copy:hover { color: var(--ink); border-color: var(--accent); }
@@ -196,6 +197,8 @@ figcaption { font-size: 13.5px; color: var(--muted); margin-top: 8px; line-heigh
 figcaption b { color: var(--ink-2); }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.grid2 > *, .grid3 > *, .grid4 > *, .cols > *, .kpis > * { min-width: 0; }
 .thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; margin: 12px 0; }
 .thumbs figure { margin: 0; }
 .thumbs img { aspect-ratio: 1 / 1; object-fit: cover; width: 100%; }
@@ -271,6 +274,7 @@ dl.gloss dd { margin: 0; color: var(--ink-2); }
   h2 { font-size: 24px; }
   h3 { font-size: 19px; }
   .grid2, .grid3, .cols { grid-template-columns: 1fr; }
+  .grid4 { grid-template-columns: 1fr 1fr; }
   dl.gloss { grid-template-columns: 1fr; }
   dl.gloss dd { margin-bottom: 8px; }
   .topbar .brand span { display: none; }

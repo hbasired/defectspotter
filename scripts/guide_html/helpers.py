@@ -22,7 +22,12 @@ def part(title: str) -> str:
 
 
 def chapter(cid: str, num, title: str, body: str, lede: str | None = None) -> str:
-    TOC.append((1, cid, f"{num}. {title}"))
+    # The body (and its sub-sections) is built before this call, so this chapter's sub-section entries are already at
+    # the end of the TOC: put the chapter entry in front of them.
+    pos = len(TOC)
+    while pos > 0 and TOC[pos - 1][0] == 2:
+        pos -= 1
+    TOC.insert(pos, (1, cid, f"{num}. {title}"))
     lede_html = f'<p class="lede">{lede}</p>' if lede else ""
     return (f'<section class="chapter" id="{cid}"><h2><span class="n">{num}</span>{e(title)}'
             f'<a class="anchor" href="#{cid}" aria-label="link to this section">#</a></h2>{lede_html}{body}</section>')

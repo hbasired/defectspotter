@@ -285,7 +285,7 @@ and down-scaling can hide defects (one reason screws use 288 px).</li>
 roll; screw test images are darker. This “lot change” is real and is handled in chapter 12.</li>
 <li><b>Test sets are ≈ 70% defective</b>, unlike a real line (≈ 1%). All rates are therefore reported per class and costs
 are re-weighted to 1% defects.</li></ul>
-<div class="grid3" style="grid-template-columns:repeat(4,1fr)">{locs}</div>
+<div class="grid4">{locs}</div>
 <p class="small">Where defects occur (sum of all defect masks per product, reports/figures/eda_defect_location_*.png):
 bottle defects sit on the rim and inside; screw defects anywhere along the part; carpet defects anywhere.</p>
 {sub("data-split", "4.2", "The leakage-free split")}

@@ -125,6 +125,7 @@ CSS = f"""
 .ds-decision .why {{ font-size: .86rem; margin-top: 8px; }}
 .ds-badge {{ display: inline-block; border-radius: 8px; padding: 2px 8px; font-weight: 700; font-size: .8rem; }}
 .ds-table {{ width: 100%; border-collapse: collapse; font-size: .88rem; border: none !important; }}
+.ds-table tr, .ds-table thead, .ds-table tbody {{ border: none !important; }}
 .ds-table th, .ds-table td {{ border-left: none !important; border-right: none !important; border-top: none !important; }}
 .ds-table tr:last-child td {{ border-bottom: none !important; }}
 .ds-table th {{ text-align: left; color: {INK_2}; font-weight: 600; border-bottom: 1px solid {GRID}; padding: 6px 8px; }}
