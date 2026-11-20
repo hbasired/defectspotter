@@ -995,10 +995,15 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
                                  "compared, every parameter, an app tour with screenshots and the demo script. One "
                                  "self-contained file — download it below and open it in any browser."))
                 guide_html = root / "docs" / "DefectSpotter_Complete_Guide.html"
-                if guide_html.exists():
+                deck_html = root / "docs" / "DefectSpotter_Presentation.html"
+                if guide_html.exists() or deck_html.exists():
                     with gr.Row():
-                        gr.DownloadButton("⬇ Download the complete HTML guide", value=str(guide_html), variant="primary",
-                                          scale=0, min_width=320)
+                        if guide_html.exists():
+                            gr.DownloadButton("⬇ Download the complete HTML guide", value=str(guide_html), variant="primary",
+                                              scale=0, min_width=320)
+                        if deck_html.exists():
+                            gr.DownloadButton("⬇ Download the presentation (21 slides, HTML)", value=str(deck_html),
+                                              scale=0, min_width=340)
                 gr.HTML(ex.glossary_html())
                 gr.Markdown(guide_path.read_text(encoding="utf-8") if guide_path.exists()
                             else "_docs/GUIDE.md not found in this build._")

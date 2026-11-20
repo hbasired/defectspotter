@@ -108,7 +108,7 @@ choose the default threshold.
 | `examples/` | down-scaled MVTec test images + masks for the demo, synthetic and diffusion galleries, new-product samples |
 | `DefectSpotter_End_to_End_Colab_HUGGINGFACE.ipynb` | Colab: clones the repo, runs each stage with inline charts, launches the app, deploys |
 | `DefectSpotter_HuggingFace_Deployment_Guide.md` | local / Colab / HF / Claude deployment details |
-| `docs/` | `GUIDE.md`, `DefectSpotter_Complete_Guide.html` (self-contained, built by `scripts/build_guide.py`), `MODEL_CARD.md`, `DATA_CARD.md`, `screenshots/` (WebP, used by the HTML guide) |
+| `docs/` | `GUIDE.md`, `DefectSpotter_Presentation.html` (21-slide deck, `scripts/build_deck.py`), `DefectSpotter_Complete_Guide.html` (self-contained, built by `scripts/build_guide.py`), `MODEL_CARD.md`, `DATA_CARD.md`, `screenshots/` (WebP, used by the HTML guide) |
 | `demo_images/` | images to upload in a live demo + `expected_outcomes.csv` (verified against the deployed models) |
 | `tests/` | `test_core.py` (unit), `test_app.py` (integration on shipped artifacts) |
 

@@ -126,3 +126,14 @@ def test_detector_per_product_and_map(inspector):
         assert r["recommended"].startswith("PatchCore") and "PatchCore" in r["ranking"]
     html = ex.detector_map_html()
     assert "not trained here" in html and "no ResNet" in html
+
+
+def test_deck_charts_are_valid_svg():
+    import sys
+    import xml.etree.ElementTree as ET
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import build_deck
+
+    ET.fromstring(build_deck.hbar([("a", 0.5, "#2a78d6", "a"), ("b", 1.0, "#6250d6", "b")], 1.0, lambda v: f"{v:.2f}", title="t"))
+    ET.fromstring(build_deck.line_chart([(1, 0.7, 0.6, 0.8), (8, 0.97, 0.95, 0.99)], "t"))

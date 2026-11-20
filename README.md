@@ -9,6 +9,9 @@
   the same Gradio dashboard runs locally with `python app.py`.
 * **Notebook:** [`DefectSpotter_End_to_End_Colab_HUGGINGFACE.ipynb`](DefectSpotter_End_to_End_Colab_HUGGINGFACE.ipynb) — EDA → training → evaluation → dashboard → deployment.
 * **Data:** MVTec AD (bottle, screw, carpet; metal nut for few-shot onboarding) — CC BY-NC-SA 4.0, research/teaching only.
+* **Presentation:** [`docs/DefectSpotter_Presentation.html`](docs/DefectSpotter_Presentation.html) — 21 self-contained 16:9
+  slides (open in a browser: ← → to navigate, F fullscreen, O overview, print = one slide per page), built by
+  `python scripts/build_deck.py`.
 * **Complete guide:** [`docs/DefectSpotter_Complete_Guide.html`](docs/DefectSpotter_Complete_Guide.html) — one self-contained
   page (download it and open it in a browser, or use the app's 📖 Guide tab): flow diagrams of every process, every model,
   concept and parameter, the five detectors compared, results, app tour with screenshots and the demo script.
