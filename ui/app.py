@@ -14,8 +14,9 @@ import pandas as pd
 
 from defectspotter.constants import CATEGORY_INFO, METHOD_LABELS, PROJECT_ROOT
 from defectspotter.data import read_rgb, to_rgb_array
-from defectspotter.decision import (CostModel, cost_curve, decide_many, operating_metrics, reference_costs,
-                                    select_threshold_by_cost)
+from defectspotter.decision import (CostModel, calibration_sets, cost_curve, decide_many, default_policy,
+                                    operating_metrics,
+                                    reference_costs, select_threshold_by_cost)
 from defectspotter.drift import DRIFT_KINDS, apply_drift
 from defectspotter.runtime import METHOD_ORDER, Inspector
 from defectspotter.viz import fit_display, overlay
@@ -263,12 +264,14 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
         if eval_set.startswith("Operating"):
             mask = g["test_roles"] == "operating_test"
             scores, labels = g["test_scores"][mask], g["test_labels"][mask]
-        else:
-            scores = np.r_[g["cal_good"], g["synthetic"]]
-            labels = np.r_[np.zeros(len(g["cal_good"])), np.ones(len(g["synthetic"]))]
+        else:  # label-free calibration data exactly as used for the default policy
+            defects, _ = calibration_sets(store.calibration_groups(g))
+            scores = np.r_[g["cal_good"], defects]
+            labels = np.r_[np.zeros(len(g["cal_good"])), np.ones(len(defects))]
         m = operating_metrics(scores, labels, float(threshold), float(band), costs)
         curve = cost_curve(scores, labels, float(band), costs)
-        best = select_threshold_by_cost(scores, labels, costs, bands=(float(band),))
+        best = select_threshold_by_cost(scores, labels, costs, bands=(float(band),),
+                                        smooth=not eval_set.startswith("Operating"))
         refs = reference_costs(costs)
         per_year = m["expected_cost_per_1000"] / 1000 * costs.parts_per_day * 365
         manual_year = refs["manual_100pct_per_1000"] / 1000 * costs.parts_per_day * 365
@@ -306,9 +309,9 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
         costs = CostModel(defect_prevalence=prevalence / 100, cost_escape=c_escape, cost_false_reject=c_fr,
                           cost_review=c_review, review_capacity=capacity / 100)
         g = store.score_groups(category, method)
-        scores = np.r_[g["cal_good"], g["synthetic"]]
-        labels = np.r_[np.zeros(len(g["cal_good"])), np.ones(len(g["synthetic"]))]
-        best = select_threshold_by_cost(scores, labels, costs)
+        # Same label-free recipe as the deployed default (decision.default_policy): held-out good parts +
+        # every synthetic set the detector can separate, cost minimised on smoothed distributions.
+        best = default_policy(store.calibration_groups(g), costs)
         gr.Info(f"Applied threshold {best['threshold']:.1f} ± {best['band']:.1f} (chosen with good + synthetic parts only).")
         return best["threshold"], best["band"]
 
@@ -405,9 +408,13 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
         return frame.to_dict(orient="records"), str(path)
 
     def health():
+        # Gradio clients treat any dict with a "path" key as a file to download, so the manifest's
+        # "path" is exposed as "file" instead.
+        extractor = {("file" if k == "path" else k): v
+                     for k, v in (inspector.manifest.get("feature_extractor") or {}).items()}
         return {"status": "ok", "version": inspector.manifest.get("version"), "categories": categories,
                 "methods": {c: inspector.methods(c) for c in categories},
-                "feature_extractor": inspector.manifest.get("feature_extractor"),
+                "feature_extractor": extractor,
                 "policies": {c: {m: inspector.policy(c, m) for m in inspector.methods(c)} for c in categories}}
 
     # ================================================================ layout

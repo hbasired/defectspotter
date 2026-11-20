@@ -96,4 +96,13 @@ class ReportStore:
         }
         if "diff" in m:
             groups["diffusion"] = np.asarray(m["diff"])
+        if "sev" in m and data.get("sev_levels"):
+            groups["severity"] = np.asarray(m["sev"])
+            groups["severity_levels"] = np.asarray(data["sev_levels"])
         return groups
+
+    @staticmethod
+    def calibration_groups(groups: dict) -> dict:
+        """Map threshold-lab groups to the keys of ``decision.calibration_sets`` (label-free data only)."""
+        return {"cal": groups["cal_good"], "syn": groups["synthetic"], "diff": groups.get("diffusion"),
+                "sev": groups.get("severity"), "sev_levels": groups.get("severity_levels")}

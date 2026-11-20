@@ -118,10 +118,13 @@ def pipeline_html() -> str:
 <div class="ds-flow">{boxes}</div>
 <div class="ds-grid3" style="margin-top:12px">
  <div class="ds-card"><h3>PatchCore-style detector</h3>
-  <p class="ds-note">A frozen ImageNet ResNet-18 turns the image into a 28×28 grid of patch descriptors (layer2 + layer3,
-  3×3 neighbourhood averaging). Descriptors of all good training parts form a memory bank, compressed with greedy k-center
-  <b>coreset</b> selection. A test patch far from every normal patch is anomalous; the largest distance is the image score.
-  No training of the network is needed — onboarding a product takes seconds.</p></div>
+  <p class="ds-note">A frozen ImageNet ResNet-18 (one shared 11 MB ONNX file) turns the image into a grid of patch
+  descriptors (layer2 + layer3). Each product gets its own recipe, chosen without real defects: input resolution,
+  3×3 neighbourhood averaging for objects vs raw descriptors that keep fine weave detail for textures, and 90°-rotated
+  good parts in the bank for parts that arrive in any orientation (screws). Descriptors of all good training parts form a
+  memory bank, compressed with greedy k-center <b>coreset</b> selection. A test patch far from every normal patch is
+  anomalous; the largest distance is the image score. No training of the network is needed — onboarding a product takes
+  seconds.</p></div>
  <div class="ds-card"><h3>Convolutional VAE (Generative AI)</h3>
   <p class="ds-note">An encoder–decoder with a 128-d latent bottleneck is trained to reconstruct good parts (L1 + SSIM loss).
   It cannot reproduce what it never saw, so the reconstruction error (pixel + structural) highlights defects. It is our

@@ -140,21 +140,120 @@ def cost_curve(scores, labels, band: float, costs: CostModel, thresholds=THRESHO
     return pd.DataFrame([operating_metrics(scores, labels, t, band, costs) for t in thresholds])
 
 
-def select_threshold_by_cost(scores, labels, costs: CostModel, bands=(0, 2.5, 5, 7.5, 10, 12.5, 15),
-                             thresholds=THRESHOLD_GRID) -> dict:
-    """Minimise expected cost over (threshold, band) subject to the review-capacity limit."""
+def kde_bandwidth(samples) -> float:
+    """Silverman's rule of thumb (robust spread), floored so a tight cluster still gets a smooth tail."""
+    x = np.asarray(samples, np.float64)
+    if len(x) < 2:
+        return 1.0
+    spread = min(float(np.std(x, ddof=1)), float(np.subtract(*np.percentile(x, [75, 25]))) / 1.34)
+    if spread <= 0:
+        spread = float(np.std(x, ddof=1)) or 1.0
+    return max(0.9 * spread * len(x) ** -0.2, 0.5)
+
+
+def kde_cdf(samples, points, bandwidth: float | None = None) -> np.ndarray:
+    """P(score < point) under a Gaussian kernel density of ``samples`` (smooth empirical CDF)."""
+    from scipy.special import ndtr
+
+    x = np.asarray(samples, np.float64)
+    points = np.asarray(points, np.float64)
+    if len(x) == 0:
+        return np.zeros_like(points)
+    h = kde_bandwidth(x) if bandwidth is None else float(bandwidth)
+    return ndtr((points[..., None] - x) / h).mean(axis=-1)
+
+
+def smoothed_rates(good, defects, thresholds, band: float, costs: CostModel) -> pd.DataFrame:
+    """Operating rates for many thresholds from kernel-smoothed score distributions.
+
+    With ~50 held-out good parts an empirical false-reject rate moves in 2% steps and the cost optimum
+    snaps to individual samples; the smoothed estimate extrapolates the tails instead.
+    """
+    t = np.asarray(thresholds, np.float64)
+    lo, hi = t - band, t + band
+    g_lo, g_hi = kde_cdf(good, lo), kde_cdf(good, hi)
+    d_lo, d_hi = kde_cdf(defects, lo), kde_cdf(defects, hi)
+    p = costs.defect_prevalence
+    frame = pd.DataFrame({
+        "threshold": t, "band": float(band), "false_reject_rate": 1 - g_hi, "good_check_rate": g_hi - g_lo,
+        "escape_rate": d_lo, "defect_check_rate": d_hi - d_lo, "defect_reject_rate": 1 - d_hi})
+    frame["review_rate"] = (1 - p) * frame.good_check_rate + p * frame.defect_check_rate
+    frame["false_reject_cost_per_1000"] = 1000 * (1 - p) * frame.false_reject_rate * costs.cost_false_reject
+    frame["escape_cost_per_1000"] = 1000 * p * frame.escape_rate * costs.cost_escape
+    frame["review_cost_per_1000"] = 1000 * frame.review_rate * costs.cost_review
+    frame["expected_cost_per_1000"] = (frame.false_reject_cost_per_1000 + frame.escape_cost_per_1000
+                                       + frame.review_cost_per_1000)
+    return frame
+
+
+DEFAULT_BANDS = (0, 2.5, 5, 7.5, 10, 12.5, 15)
+
+
+def select_threshold_by_cost(scores, labels, costs: CostModel, bands=DEFAULT_BANDS,
+                             thresholds=THRESHOLD_GRID, smooth: bool = False) -> dict:
+    """Minimise expected cost over (threshold, band) subject to the review-capacity limit.
+
+    ``smooth=True`` evaluates the cost on kernel-smoothed distributions (used for the label-free default
+    policy); the returned metrics are always the empirical ones on ``scores``/``labels``.
+    """
+    scores = np.asarray(scores, np.float64)
+    labels = np.asarray(labels).astype(int)
     best = None
     for band in bands:
-        for t in thresholds:
-            m = operating_metrics(scores, labels, t, band, costs)
-            if m["review_rate"] > costs.review_capacity:
-                continue
-            key = (round(m["expected_cost_per_1000"], 6), m["escape_rate"], band)
-            if best is None or key < best[0]:
-                best = (key, m)
+        if smooth:
+            frame = smoothed_rates(scores[labels == 0], scores[labels == 1], thresholds, band, costs)
+            frame = frame[frame.review_rate <= costs.review_capacity]
+            candidates = [(round(r.expected_cost_per_1000, 6), r.escape_rate, band, r.threshold)
+                          for r in frame.itertuples()]
+        else:
+            candidates = []
+            for t in thresholds:
+                m = operating_metrics(scores, labels, t, band, costs)
+                if m["review_rate"] <= costs.review_capacity:
+                    candidates.append((round(m["expected_cost_per_1000"], 6), m["escape_rate"], band, float(t)))
+        for key in candidates:
+            if best is None or key < best:
+                best = key
     if best is None:  # capacity infeasible -> no CHECK band
-        return select_threshold_by_cost(scores, labels, costs, bands=(0,), thresholds=thresholds)
-    return best[1]
+        return select_threshold_by_cost(scores, labels, costs, bands=(0,), thresholds=thresholds, smooth=smooth)
+    return operating_metrics(scores, labels, best[3], best[2], costs)
+
+
+def calibration_sets(groups: dict, min_auroc: float = 0.9) -> tuple[np.ndarray, list[tuple[str, np.ndarray, float, bool]]]:
+    """Label-free calibration defects: every synthetic set the detector can reliably separate from good.
+
+    ``groups`` holds normalised scores: ``cal`` (held-out good), ``syn`` (full-strength synthetic),
+    optionally ``sev`` + ``sev_levels`` (reduced-strength replays) and ``diff`` (diffusion-refined).
+    A set joins the default threshold only if its AUROC against held-out good is >= ``min_auroc``
+    (full-strength synthetic always joins): sets below the detection limit would otherwise drive the
+    cost optimum to "reject everything". Returns (defect scores, [(name, scores, auroc, used), ...]).
+    """
+    from .metrics import safe_auroc
+
+    good = np.asarray(groups["cal"], np.float64)
+    candidates = {"synthetic 100%": np.asarray(groups["syn"], np.float64)}
+    if groups.get("sev") is not None and groups.get("sev_levels") is not None and len(groups["sev"]):
+        sev, levels = np.asarray(groups["sev"], np.float64), np.round(np.asarray(groups["sev_levels"], np.float64), 2)
+        for level in sorted(set(levels.tolist()), reverse=True):
+            candidates[f"synthetic {int(round(100 * level))}%"] = sev[levels == level]
+    if groups.get("diff") is not None and len(groups["diff"]):
+        candidates["diffusion-refined"] = np.asarray(groups["diff"], np.float64)
+    report, used = [], []
+    for name, values in candidates.items():
+        auc = safe_auroc(np.r_[np.zeros(len(good)), np.ones(len(values))], np.r_[good, values])
+        ok = bool(auc >= min_auroc or name == "synthetic 100%")
+        report.append((name, values, float(auc), ok))
+        if ok:
+            used.append(values)
+    return np.concatenate(used), report
+
+
+def default_policy(groups: dict, costs: CostModel, min_auroc: float = 0.9) -> dict:
+    """The deployed label-free operating point: smoothed cost optimum on held-out good + gated synthetic sets."""
+    good = np.asarray(groups["cal"], np.float64)
+    defects, _ = calibration_sets(groups, min_auroc)
+    return select_threshold_by_cost(np.r_[good, defects], np.r_[np.zeros(len(good)), np.ones(len(defects))],
+                                    costs, smooth=True)
 
 
 def select_threshold_good_quantile(good_scores, false_reject_target: float = 0.01, band: float = 5.0) -> float:

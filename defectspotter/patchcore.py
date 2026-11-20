@@ -27,6 +27,8 @@ class PatchCoreConfig:
     blur_sigma: float = 4.0
     score_mode: str = "max"  # "max" of patch distances or "topk" mean of the smoothed map
     topk_fraction: float = 0.01
+    pool_size: int = 3  # local neighbourhood average of the CNN features (3 = PatchCore default, 1 = raw)
+    bank_rotations: int = 1  # good images were added to the bank at this many 90-degree rotations (train only)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -82,6 +84,30 @@ def greedy_coreset(features: np.ndarray, n_select: int, projection_dim: int = 12
             center = z[index]
             np.minimum(min_dist, z_norm - 2.0 * (z @ center) + center @ center, out=min_dist)
         return selected
+
+
+def coreset_size(n_vectors: int, dim: int, coreset_ratio: float, max_bank_mb: float = 45.0) -> int:
+    max_vectors = max(1, int(max_bank_mb * 1024 ** 2 // (dim * 2)))  # float16 on disk
+    return int(min(n_vectors, max_vectors, max(1, round(n_vectors * coreset_ratio))))
+
+
+class CoresetLadder:
+    """One greedy k-center run serves every coreset ratio.
+
+    Greedy selection is incremental: its first k picks are exactly the size-k greedy coreset, so banks for
+    ratios 1% / 5% / 10% are prefixes of a single run at the largest ratio (3 runs -> 1 in model selection).
+    """
+
+    def __init__(self, patch_grids: np.ndarray, max_ratio: float, max_bank_mb: float = 45.0,
+                 projection_dim: int = 128, seed: int = 0) -> None:
+        self.flat = np.asarray(patch_grids).reshape(-1, patch_grids.shape[-1])
+        self.max_bank_mb = max_bank_mb
+        n_max = coreset_size(len(self.flat), self.flat.shape[1], max_ratio, max_bank_mb)
+        self.order = greedy_coreset(self.flat.astype(np.float32, copy=False), n_max, projection_dim, seed)
+
+    def bank(self, coreset_ratio: float) -> np.ndarray:
+        n = coreset_size(len(self.flat), self.flat.shape[1], coreset_ratio, self.max_bank_mb)
+        return np.ascontiguousarray(self.flat[self.order[:n]].astype(np.float16))
 
 
 def build_memory_bank(patch_grids: np.ndarray, coreset_ratio: float = 0.1, max_bank_mb: float = 45.0,
@@ -144,23 +170,49 @@ def topk_mean(values: np.ndarray, fraction: float) -> float:
     return float(np.partition(flat, len(flat) - k)[-k:].mean())
 
 
-def score_grid(grid: np.ndarray, bank: MemoryBank, config: PatchCoreConfig) -> tuple[float, np.ndarray, np.ndarray]:
-    """Score one (h,w,C) patch grid. Returns (image_score, anomaly_map SxS, patch_scores hxw)."""
-    h, w, c = grid.shape
-    distances, _ = bank.nearest(grid.reshape(-1, c))
-    patch_scores = distances.reshape(h, w)
+def score_patches(patch_scores: np.ndarray, config: PatchCoreConfig) -> tuple[float, np.ndarray]:
+    """(h,w) nearest-neighbour distances -> (image_score, anomaly_map SxS) for one image."""
     anomaly_map = anomaly_map_from_patches(patch_scores, config.image_size, config.blur_sigma)
     if config.score_mode == "topk":
         image_score = topk_mean(anomaly_map, config.topk_fraction)
     else:
         image_score = float(patch_scores.max())
+    return image_score, anomaly_map
+
+
+def score_grid(grid: np.ndarray, bank: MemoryBank, config: PatchCoreConfig) -> tuple[float, np.ndarray, np.ndarray]:
+    """Score one (h,w,C) patch grid. Returns (image_score, anomaly_map SxS, patch_scores hxw)."""
+    h, w, c = grid.shape
+    distances, _ = bank.nearest(grid.reshape(-1, c))
+    patch_scores = distances.reshape(h, w)
+    image_score, anomaly_map = score_patches(patch_scores, config)
     return image_score, anomaly_map, patch_scores
 
 
-def score_grids(grids: np.ndarray, bank: MemoryBank, config: PatchCoreConfig) -> tuple[np.ndarray, np.ndarray]:
+def patch_distances(grids: np.ndarray, bank: MemoryBank, batch: int = 8) -> np.ndarray:
+    """Nearest-neighbour distance of every patch: (N,h,w,C) -> (N,h,w). The expensive step, done once."""
+    grids = np.asarray(grids)
+    n, h, w, c = grids.shape
+    out = np.empty((n, h, w), np.float32)
+    for start in range(0, n, batch):
+        chunk = np.asarray(grids[start:start + batch], np.float32).reshape(-1, c)
+        out[start:start + batch] = bank.nearest(chunk)[0].reshape(-1, h, w)
+    return out
+
+
+def scores_from_distances(distances: np.ndarray, config: PatchCoreConfig,
+                          map_size: int | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """Apply a scoring config to precomputed patch distances; optionally resize maps to ``map_size``."""
     scores, maps = [], []
-    for grid in grids:
-        score, anomaly_map, _ = score_grid(np.asarray(grid, dtype=np.float32), bank, config)
+    for patch_scores in distances:
+        score, anomaly_map = score_patches(patch_scores, config)
+        if map_size and anomaly_map.shape[0] != map_size:
+            anomaly_map = cv2.resize(anomaly_map, (map_size, map_size), interpolation=cv2.INTER_LINEAR)
         scores.append(score)
         maps.append(anomaly_map)
     return np.asarray(scores, dtype=np.float32), np.stack(maps).astype(np.float32)
+
+
+def score_grids(grids: np.ndarray, bank: MemoryBank, config: PatchCoreConfig,
+                map_size: int | None = None) -> tuple[np.ndarray, np.ndarray]:
+    return scores_from_distances(patch_distances(grids, bank), config, map_size)

@@ -122,9 +122,14 @@ class Inspector:
                 self.inspect(dummy, category, method, compare=False)
 
     # ------------------------------------------------------------ features
-    def patch_grid(self, rgb: np.ndarray, image_size: int) -> np.ndarray:
+    def patch_grid(self, rgb: np.ndarray, image_size: int, pool_size: int = 3) -> np.ndarray:
+        """CNN patch descriptors (h, w, C). The shared ONNX graph has one output per pooling size."""
         x = imagenet_input(rgb, image_size)[None]
-        out = self.extractor.run(None, {"image": x})[0][0]
+        outputs = self.manifest["feature_extractor"].get("outputs", {"3": None})
+        name = outputs.get(str(int(pool_size)))
+        if name is None and str(int(pool_size)) not in outputs:
+            raise ValueError(f"The feature extractor has no output for pool_size={pool_size} ({outputs})")
+        out = self.extractor.run([name] if name else None, {"image": x})[0][0]
         return np.ascontiguousarray(out.transpose(1, 2, 0))
 
     # --------------------------------------------------------- per method
@@ -132,7 +137,7 @@ class Inspector:
         info = self.calibration(category)["methods"]["patchcore"]
         config = PatchCoreConfig(**info["config"])
         t0 = time.perf_counter()
-        grid = self.patch_grid(rgb, config.image_size)
+        grid = self.patch_grid(rgb, config.image_size, config.pool_size)
         t1 = time.perf_counter()
         raw, anomaly_map, _ = score_grid(grid, self.bank(category), config)
         t2 = time.perf_counter()
@@ -303,7 +308,8 @@ class Inspector:
         rgb = to_rgb_array(image)
         config = PatchCoreConfig(**model["config"])
         started = time.perf_counter()
-        raw, anomaly_map, _ = score_grid(self.patch_grid(rgb, config.image_size), MemoryBank(model["bank"]), config)
+        raw, anomaly_map, _ = score_grid(self.patch_grid(rgb, config.image_size, config.pool_size),
+                                         MemoryBank(model["bank"]), config)
         score = float(normalize_scores(raw, model["score_scale"]))
         threshold = float(model["threshold"] if threshold is None else threshold)
         band = float(model["band"] if band is None else band)

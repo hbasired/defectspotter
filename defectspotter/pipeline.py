@@ -26,17 +26,21 @@ from .baseline import MeanBaselineConfig, MeanImageBaseline
 from .constants import CATEGORY_INFO, FEW_SHOT_CATEGORY, MAIN_CATEGORIES, MVTEC_HF_REPO, MVTEC_HF_REVISION
 from .data import (acquisition_stats, index_mvtec, load_json, make_splits, read_mask, read_rgb, resize_rgb,
                    save_json)
-from .decision import (CostModel, fit_pixel_scale, fit_score_scale, normalize_map, normalize_scores,
+from .decision import (CostModel, calibration_sets, default_policy, fit_pixel_scale, fit_score_scale,
+                       normalize_map, normalize_scores,
                        operating_metrics, reference_costs, select_threshold_by_cost,
                        select_threshold_good_quantile, decide_many)
 from .drift import DRIFT_KINDS, EWMAChart, apply_drift, first_alarm, health_check, reference_from_stats
 from .metrics import aupro, bootstrap_auroc_ci, pixel_auroc, roc_points, safe_ap, safe_auroc
-from .patchcore import MemoryBank, PatchCoreConfig, build_memory_bank, score_grid, score_grids
+from .patchcore import (CoresetLadder, MemoryBank, PatchCoreConfig, build_memory_bank, patch_distances,
+                        score_grid,
+                        score_grids, scores_from_distances)
 from .synthetic import generate_synthetic_set
 from .vae import VAEConfig, score_reconstruction
 
 METHODS = ("patchcore", "vae", "mean", "ensemble")
 MAP = 224  # common resolution for all evaluation maps
+SEVERITY_LEVELS = (0.25, 0.5)  # reduced-strength replays of every synthetic defect (detection-limit set)
 
 
 @dataclass
@@ -52,6 +56,13 @@ class PipelineConfig:
     blur_grid: tuple = (2.0, 4.0)
     score_modes: tuple = ("max", "topk")
     topk_grid: tuple = (0.01, 0.05)
+    # v2 search space (label-free selection, see stage_patchcore): input resolution, feature aggregation
+    # (3x3 PatchCore neighbourhood vs raw descriptors) and rotated copies of good parts in the bank for
+    # objects that arrive in any orientation (rotations keep thread handedness; flips would not).
+    size_grid: tuple = (224, 288)
+    pool_grid: tuple = (3, 1)
+    object_rotation_grid: tuple = (1, 4)
+    hpo_severity: float = 0.5  # subtle (50%-strength) synthetic defects join the selection objective
     max_bank_mb: float = 45.0
     vae_image_size: int = 128
     vae_latent_dim: int = 128
@@ -231,6 +242,9 @@ class Pipeline:
             out = self.cfg.work / "synthetic" / category
             if out.exists():
                 shutil.rmtree(out)
+            for stale in [*(self.cfg.work / "features").glob(f"{category}_*_s[ye][nv].npz"),  # syn / sev caches
+                          self.cfg.work / "scores" / f"patchcore_{category}_search.json"]:
+                stale.unlink(missing_ok=True)
             manifest = generate_synthetic_set([self.abs(p) for p in good.image_path], category, out,
                                               per_image=self.cfg.synthetic_per_image, seed=self.cfg.seed)
             rows.append(manifest.assign(image_path=manifest.image_path.map(lambda p: Path(p).name)))
@@ -248,79 +262,167 @@ class Pipeline:
         self.log(f"Synthetic defects: {len(frame)} images")
 
     # ----------------------------------------------------------- PatchCore
-    def _features(self, category: str) -> dict:
-        from .features import extract_features
+    def _severity_items(self, category: str) -> tuple[list[tuple], np.ndarray]:
+        """(source, synthetic, level) triples: each synthetic defect blended back into its good source."""
+        items = [(row.source_path, row.image_path, level) for row in self.synthetic(category).itertuples()
+                 for level in SEVERITY_LEVELS]
+        return items, np.asarray([level for _, _, level in items], np.float32)
 
-        cache = self.cfg.work / "features" / f"{category}_{self.cfg.backbone}_{self.cfg.image_size}.npz"
+    @staticmethod
+    def _blend(item: tuple) -> np.ndarray:
+        source, defect, level = item
+        source = read_rgb(source).astype(np.float32)
+        defect = read_rgb(defect).astype(np.float32)
+        return ((1 - level) * source + level * defect).clip(0, 255).astype(np.uint8)
+
+    def _feature_items(self, category: str, name: str, rotations: int = 1):
+        augment = None
+        if name == "train":
+            items = [self.abs(p) for p in self.paths(category, role="model_train_good").image_path]
+            if rotations > 1:
+                augment = lambda path: [np.ascontiguousarray(np.rot90(read_rgb(path), k)) for k in range(rotations)]  # noqa: E731
+        elif name == "cal":
+            items = [self.abs(p) for p in self.paths(category, role="calibration_good").image_path]
+        elif name == "test":
+            items = [self.abs(p) for p in self.paths(category, split="test").image_path]
+        elif name == "syn":
+            items = self.synthetic(category).image_path.tolist()
+        elif name == "sev":
+            items, _ = self._severity_items(category)
+            augment = lambda item: [self._blend(item)]  # noqa: E731
+        else:
+            raise ValueError(name)
+        return items, augment
+
+    def _feature_set(self, category: str, name: str, image_size: int | None = None,
+                     rotations: int = 1) -> dict[int, np.ndarray]:
+        """Cached CNN patch features {pool_size: (N,h,w,C) float16} for one image set at one resolution."""
+        from .features import EXPORT_POOLS, extract_features
+
+        image_size = int(image_size or self.cfg.image_size)
+        tag = f"{name}_rot{rotations}" if rotations > 1 else name
+        cache = self.cfg.work / "features" / f"{category}_{self.cfg.backbone}_{image_size}_{tag}.npz"
         if cache.exists():
-            return dict(np.load(cache))
-        sets = {
-            "train": [self.abs(p) for p in self.paths(category, role="model_train_good").image_path],
-            "cal": [self.abs(p) for p in self.paths(category, role="calibration_good").image_path],
-            "test": [self.abs(p) for p in self.paths(category, split="test").image_path],
-        }
-        if category in self.cfg.categories:
-            sets["syn"] = self.synthetic(category).image_path.tolist()
-        out = {}
-        for name, items in sets.items():
-            self.log(f"  features {category}/{name}: {len(items)} images")
-            out[name] = extract_features(self.extractor, items, self.cfg.image_size, device=self.cfg.device)
+            with np.load(cache) as data:
+                return {int(k[1:]): data[k] for k in data.files}
+        items, augment = self._feature_items(category, name, rotations)
+        self.log(f"  features {category}/{tag} @{image_size}px: {len(items)} images")
+        arrays = extract_features(self.extractor, items, image_size, device=self.cfg.device, pools=EXPORT_POOLS,
+                                  augment=augment)
         cache.parent.mkdir(parents=True, exist_ok=True)
-        np.savez(cache, **out)
-        return out
+        np.savez(cache, **{f"p{p}": a for p, a in arrays.items()})
+        return arrays
+
+    def _rotation_grid(self, category: str) -> tuple:
+        return self.cfg.object_rotation_grid if CATEGORY_INFO.get(category, {}).get("kind") == "object" else (1,)
 
     def stage_patchcore(self) -> None:
+        """Label-free model selection on held-out good parts + synthetic defects (no real defect is used).
+
+        Objective = 0.4 * image AUROC + 0.3 * TPR at <=1% false rejects + 0.3 * pixel AUROC, where the
+        defect set is the full-strength synthetic defects *plus* their 50%-strength replays. Full-strength
+        synthetic defects alone saturate (AUROC ~1) and favour settings that only see conspicuous blobs;
+        the subtle replays reward settings that keep fine detail, which is what real defects need.
+        """
         hpo_rows = []
+        scoring = [("max", 0.01)] if "max" in self.cfg.score_modes else []
+        if "topk" in self.cfg.score_modes:
+            scoring += [("topk", f) for f in self.cfg.topk_grid]
         for category in self.cfg.categories:
-            feats = self._features(category)
-            syn = self.synthetic(category)
-            syn_masks = [read_mask(p, MAP) for p in syn.mask_path]
+            # Resumable per product: a finished search with the same search space is not repeated.
+            signature = json.dumps({"backbone": self.cfg.backbone, "sizes": list(self.cfg.size_grid),
+                                    "pools": list(self.cfg.pool_grid), "rotations": list(self._rotation_grid(category)),
+                                    "coreset": list(self.cfg.coreset_grid), "blur": list(self.cfg.blur_grid),
+                                    "scoring": [list(x) for x in scoring], "hpo_severity": self.cfg.hpo_severity,
+                                    "max_bank_mb": self.cfg.max_bank_mb, "seed": self.cfg.seed}, sort_keys=True)
+            done = self.cfg.work / "scores" / f"patchcore_{category}_search.json"
+            if (done.exists() and load_json(done, {}).get("signature") == signature
+                    and (self.cfg.artifacts / category / "patchcore_bank.npy").exists()):
+                hpo_rows.extend(load_json(done)["rows"])
+                self.log(f"  {category}: search already finished with this search space - reusing it")
+                continue
+            first_row = len(hpo_rows)
+            syn_masks = [read_mask(p, MAP) for p in self.synthetic(category).mask_path]
+            _, sev_levels = self._severity_items(category)
+            subtle = np.isclose(sev_levels, self.cfg.hpo_severity)
             best = None
-            scoring = [("max", 0.01)] if "max" in self.cfg.score_modes else []
-            if "topk" in self.cfg.score_modes:
-                scoring += [("topk", f) for f in self.cfg.topk_grid]
-            for ratio in self.cfg.coreset_grid:
-                bank = MemoryBank(build_memory_bank(feats["train"], ratio, self.cfg.max_bank_mb, seed=self.cfg.seed))
-                for blur in self.cfg.blur_grid:
-                    for mode, topk in scoring:
-                        config = PatchCoreConfig(backbone=self.cfg.backbone, image_size=self.cfg.image_size,
-                                                 coreset_ratio=ratio, blur_sigma=blur, score_mode=mode,
-                                                 topk_fraction=topk)
-                        good_s, good_m = score_grids(feats["cal"], bank, config)
-                        syn_s, syn_m = score_grids(feats["syn"], bank, config)
-                        labels = np.r_[np.zeros(len(good_s)), np.ones(len(syn_s))]
-                        image_auc = safe_auroc(labels, np.r_[good_s, syn_s])
-                        # AUROC saturates on synthetic data; the share of synthetic defects caught above
-                        # the 99th percentile of good scores (TPR at <=1% false rejects) does not, and it is
-                        # the operating requirement of a real line.
-                        tpr_at_1pct = float(np.mean(syn_s > np.quantile(good_s, 0.99)))
-                        pix_auc = pixel_auroc([*good_m, *syn_m],
-                                              [np.zeros((MAP, MAP), np.uint8)] * len(good_m) + syn_masks)
-                        bank_mb = len(bank) * bank.bank.shape[1] * 2 / 1024 ** 2
-                        objective = 0.4 * image_auc + 0.3 * tpr_at_1pct + 0.3 * pix_auc - 1e-4 * np.log1p(bank_mb)
-                        row = {"category": category, "coreset_ratio": ratio, "blur_sigma": blur, "score_mode": mode,
-                               "topk_fraction": topk if mode == "topk" else None,
-                               "bank_vectors": len(bank), "bank_mb": len(bank) * bank.bank.shape[1] * 2 / 1024 ** 2,
-                               "synthetic_image_auroc": image_auc, "synthetic_tpr_at_1pct_fpr": tpr_at_1pct,
-                               "synthetic_pixel_auroc": pix_auc, "objective": objective}
-                        hpo_rows.append(row)
-                        if best is None or objective > best[0]:
-                            best = (objective, config)
-            config = best[1]
+            for size in self.cfg.size_grid:
+                cal = self._feature_set(category, "cal", size)
+                syn = self._feature_set(category, "syn", size)
+                sev = self._feature_set(category, "sev", size)
+                for rotations in self._rotation_grid(category):
+                    train = self._feature_set(category, "train", size, rotations)
+                    for pool in self.cfg.pool_grid:
+                        t0 = time.time()
+                        ladder = CoresetLadder(train[pool], max(self.cfg.coreset_grid), self.cfg.max_bank_mb,
+                                               seed=self.cfg.seed)
+                        self.log(f"  {category} @{size}px pool={pool} rot={rotations}: greedy coreset of "
+                                 f"{len(ladder.order)} / {len(ladder.flat)} patches ({time.time() - t0:.0f}s)")
+                        for ratio in self.cfg.coreset_grid:
+                            t0 = time.time()
+                            bank_vectors = ladder.bank(ratio)
+                            bank = MemoryBank(bank_vectors)
+                            d_cal = patch_distances(cal[pool], bank)
+                            d_syn = patch_distances(syn[pool], bank)
+                            d_sev = patch_distances(sev[pool][subtle], bank)
+                            pixel_cache: dict = {}
+                            for blur in self.cfg.blur_grid:
+                                for mode, topk in scoring:
+                                    config = PatchCoreConfig(backbone=self.cfg.backbone, image_size=int(size),
+                                                             coreset_ratio=ratio, blur_sigma=blur, score_mode=mode,
+                                                             topk_fraction=topk, max_bank_mb=self.cfg.max_bank_mb,
+                                                             pool_size=int(pool), bank_rotations=int(rotations))
+                                    good_s, good_m = scores_from_distances(d_cal, config, MAP)
+                                    syn_s, syn_m = scores_from_distances(d_syn, config, MAP)
+                                    sev_s, _ = scores_from_distances(d_sev, config)
+                                    defects = np.r_[syn_s, sev_s]
+                                    labels = np.r_[np.zeros(len(good_s)), np.ones(len(defects))]
+                                    image_auc = safe_auroc(labels, np.r_[good_s, defects])
+                                    # AUROC saturates on synthetic data; the share of defects caught above the
+                                    # 99th percentile of good scores (TPR at <=1% false rejects) does not, and it
+                                    # is the operating requirement of a real line.
+                                    tpr_at_1pct = float(np.mean(defects > np.quantile(good_s, 0.99)))
+                                    if blur not in pixel_cache:  # maps do not depend on the image-score mode
+                                        pixel_cache[blur] = pixel_auroc(
+                                            [*good_m, *syn_m], [np.zeros((MAP, MAP), np.uint8)] * len(good_m) + syn_masks)
+                                    pix_auc = pixel_cache[blur]
+                                    bank_mb = len(bank) * bank.bank.shape[1] * 2 / 1024 ** 2
+                                    objective = (0.4 * image_auc + 0.3 * tpr_at_1pct + 0.3 * pix_auc
+                                                 - 1e-4 * np.log1p(bank_mb) - 1e-4 * (size / 224 - 1))
+                                    hpo_rows.append({
+                                        "category": category, "image_size": int(size), "pool_size": int(pool),
+                                        "bank_rotations": int(rotations), "coreset_ratio": ratio, "blur_sigma": blur,
+                                        "score_mode": mode, "topk_fraction": topk if mode == "topk" else None,
+                                        "bank_vectors": len(bank), "bank_mb": bank_mb,
+                                        "synthetic_image_auroc": safe_auroc(
+                                            np.r_[np.zeros(len(good_s)), np.ones(len(syn_s))], np.r_[good_s, syn_s]),
+                                        "subtle_image_auroc": safe_auroc(
+                                            np.r_[np.zeros(len(good_s)), np.ones(len(sev_s))], np.r_[good_s, sev_s]),
+                                        "combined_image_auroc": image_auc, "synthetic_tpr_at_1pct_fpr": tpr_at_1pct,
+                                        "synthetic_pixel_auroc": pix_auc, "objective": objective})
+                                    if best is None or objective > best[0]:
+                                        best = (objective, config, bank_vectors)
+                            self.log(f"  {category} @{size}px pool={pool} rot={rotations} coreset={ratio}: "
+                                     f"bank={len(bank)} best objective so far={best[0]:.4f} ({time.time() - t0:.0f}s)")
+                        del ladder
+            _, config, bank_vectors = best
             self.log(f"  {category}: selected {config}")
-            bank_vectors = build_memory_bank(feats["train"], config.coreset_ratio, self.cfg.max_bank_mb,
-                                             seed=self.cfg.seed)
             folder = self.cfg.artifacts / category
             folder.mkdir(parents=True, exist_ok=True)
             np.save(folder / "patchcore_bank.npy", bank_vectors)
             bank = MemoryBank(bank_vectors)
             payload = {"config": config.to_dict()}
-            for name in [k for k in ("cal", "syn", "test") if k in feats]:
-                scores, maps = score_grids(feats[name], bank, config)
-                payload[f"{name}_scores"], payload[f"{name}_maps"] = scores, maps.astype(np.float16)
-            train_scores, _ = score_grids(feats["train"][:24], bank, config)  # in-sample sanity only
-            payload["train_insample_scores"] = train_scores
+            for name in ("cal", "syn", "test", "sev"):
+                feats = self._feature_set(category, name, config.image_size)[config.pool_size]
+                scores, maps = scores_from_distances(patch_distances(feats, bank), config, MAP)
+                payload[f"{name}_scores"] = scores
+                if name != "sev":
+                    payload[f"{name}_maps"] = maps.astype(np.float16)
+            payload["sev_levels"] = sev_levels
+            train = self._feature_set(category, "train", config.image_size)[config.pool_size][:24]
+            payload["train_insample_scores"] = scores_from_distances(patch_distances(train, bank), config)[0]
             self._save_scores("patchcore", category, payload)
+            save_json({"signature": signature, "rows": hpo_rows[first_row:]}, done)
         pd.DataFrame(hpo_rows).to_csv(self.cfg.reports / "hpo_patchcore.csv", index=False)
 
     def _save_scores(self, method: str, category: str, payload: dict) -> None:
@@ -430,7 +532,7 @@ class Pipeline:
         pd.DataFrame(hpo_rows).to_csv(self.cfg.reports / "hpo_mean_baseline.csv", index=False)
 
     # ------------------------------------------- detection-limit calibration
-    def stage_severity(self, levels: tuple = (0.25, 0.5)) -> None:
+    def stage_severity(self) -> None:
         """Replay every synthetic defect at reduced severity (label-free 'detection-limit' set).
 
         Inspection specs define the faintest defect that must be caught. Blending each synthetic defect
@@ -439,40 +541,34 @@ class Pipeline:
         """
         import onnxruntime as ort
 
-        from .features import extract_features
         from .vae import load_vae_input
 
         for category in self.cfg.categories:
-            images, kinds = [], []
-            for row in self.synthetic(category).itertuples():
-                source = read_rgb(row.source_path).astype(np.float32)
-                defect = read_rgb(row.image_path).astype(np.float32)
-                for level in levels:
-                    images.append(((1 - level) * source + level * defect).clip(0, 255).astype(np.uint8))
-                    kinds.append(level)
+            items, levels = self._severity_items(category)
             data, config = self._load_scores("patchcore", category)
+            pc_config = PatchCoreConfig(**config)
             bank = MemoryBank(np.load(self.cfg.artifacts / category / "patchcore_bank.npy"))
-            grids = extract_features(self.extractor, images, self.cfg.image_size, device=self.cfg.device)
-            scores, _ = score_grids(grids, bank, PatchCoreConfig(**config))
+            grids = self._feature_set(category, "sev", pc_config.image_size)[pc_config.pool_size]
+            scores, _ = scores_from_distances(patch_distances(grids, bank), pc_config)
             self._save_scores("patchcore", category, {**data, "config": config, "sev_scores": scores,
-                                                       "sev_levels": np.asarray(kinds, np.float32)})
+                                                       "sev_levels": levels})
             data, config = self._load_scores("vae", category)
             vae_config = VAEConfig(**{k: v for k, v in config.items() if k in VAEConfig.__dataclass_fields__})
             session = ort.InferenceSession(str(self.cfg.artifacts / category / "vae.onnx"),
                                            providers=["CPUExecutionProvider"])
-            vae_scores = []
-            for image in images:
+            model = MeanImageBaseline.load(self.cfg.artifacts / category)
+            vae_scores, mean_scores = [], []
+            for item in items:
+                image = self._blend(item)
                 x = load_vae_input(image, vae_config.image_size)
                 vae_scores.append(score_reconstruction(x, session.run(None, {"image": x[None]})[0][0], vae_config)[0])
+                mean_scores.append(model.predict(image)[0])
             self._save_scores("vae", category, {**data, "config": config,
-                                                 "sev_scores": np.asarray(vae_scores, np.float32),
-                                                 "sev_levels": np.asarray(kinds, np.float32)})
+                                                 "sev_scores": np.asarray(vae_scores, np.float32), "sev_levels": levels})
             data, config = self._load_scores("mean", category)
-            model = MeanImageBaseline.load(self.cfg.artifacts / category)
             self._save_scores("mean", category, {**data, "config": config,
-                                                  "sev_scores": np.asarray([model.predict(i)[0] for i in images], np.float32),
-                                                  "sev_levels": np.asarray(kinds, np.float32)})
-            self.log(f"  {category}: scored {len(images)} reduced-severity synthetic defects (levels {levels})")
+                                                  "sev_scores": np.asarray(mean_scores, np.float32), "sev_levels": levels})
+            self.log(f"  {category}: scored {len(items)} reduced-severity synthetic defects (levels {SEVERITY_LEVELS})")
 
     # ---------------------------------------------------- diffusion defects
     def stage_diffusion(self) -> None:
@@ -490,9 +586,11 @@ class Pipeline:
             items = manifest.image_path.tolist()
             # PatchCore
             data, config = self._load_scores("patchcore", category)
+            pc_config = PatchCoreConfig(**config)
             bank = MemoryBank(np.load(self.cfg.artifacts / category / "patchcore_bank.npy"))
-            grids = extract_features(self.extractor, items, self.cfg.image_size, device=self.cfg.device)
-            scores, maps = score_grids(grids, bank, PatchCoreConfig(**config))
+            grids = extract_features(self.extractor, items, pc_config.image_size, device=self.cfg.device,
+                                     pools=[pc_config.pool_size])[pc_config.pool_size]
+            scores, maps = score_grids(grids, bank, pc_config, map_size=MAP)
             self._save_scores("patchcore", category, {**data, "config": config, "diff_scores": scores,
                                                        "diff_maps": maps.astype(np.float16)})
             # VAE
@@ -539,13 +637,19 @@ class Pipeline:
                 methods[method] = {"config": config, "score_scale": scale, "pixel_scale": pixel_scale}
                 if "sev_levels" in data:
                     sev_levels = data["sev_levels"]
-            # Ensemble weight chosen on synthetic calibration data only (label-free).
-            best_w, best_auc = 0.5, -1.0
-            for w in np.round(np.linspace(0, 1, 11), 2):
-                good = w * normalized["patchcore"]["cal"] + (1 - w) * normalized["vae"]["cal"]
-                syn = w * normalized["patchcore"]["syn"] + (1 - w) * normalized["vae"]["syn"]
-                auc = safe_auroc(np.r_[np.zeros(len(good)), np.ones(len(syn))], np.r_[good, syn])
-                if auc > best_auc + 1e-9:
+            # Ensemble weight chosen label-free on held-out good vs full-strength + subtle (50%) synthetic
+            # defects - the same defect set as the PatchCore model selection. Full-strength synthetics alone
+            # reward the VAE for spotting conspicuous blobs and pulled the screw ensemble far below PatchCore.
+            # Weights are scanned from PatchCore-only downwards, so ties keep the stronger single detector.
+            subtle = (np.isclose(sev_levels, self.cfg.hpo_severity) if sev_levels is not None
+                      else np.zeros(len(normalized["patchcore"].get("sev", [])), bool))
+            best_w, best_auc = 1.0, -1.0
+            for w in np.round(np.linspace(1, 0, 11), 2):
+                mix = {k: w * normalized["patchcore"][k] + (1 - w) * normalized["vae"][k] for k in ("cal", "syn", "sev")
+                       if k in normalized["patchcore"] and k in normalized["vae"]}
+                defects = np.r_[mix["syn"], mix["sev"][subtle]] if "sev" in mix else mix["syn"]
+                auc = safe_auroc(np.r_[np.zeros(len(mix["cal"])), np.ones(len(defects))], np.r_[mix["cal"], defects])
+                if auc > best_auc + 1e-3:
                     best_w, best_auc = float(w), auc
             combined = {k: best_w * normalized["patchcore"][k] + (1 - best_w) * normalized["vae"][k]
                         for k in normalized["patchcore"] if k in normalized["vae"]}
@@ -556,48 +660,43 @@ class Pipeline:
             for method, info in methods.items():
                 s = normalized[method]
                 syn_labels = np.r_[np.zeros(len(s["cal"])), np.ones(len(s["syn"]))]
-                # Label-free capability gate: a calibration set joins the default policy only if the detector
-                # separates it from held-out good parts (synthetic AUROC >= 0.9). Weaker sets mark the detection
-                # limit and are reported, instead of driving the cost optimum to "reject everything".
-                candidate_sets = {"synthetic 100%": s["syn"]}
-                if "sev" in s and sev_levels is not None:
-                    for level in sorted(set(np.round(sev_levels, 2).tolist()), reverse=True):
-                        candidate_sets[f"synthetic {int(round(100 * level))}%"] = s["sev"][np.isclose(sev_levels, level)]
-                if "diff" in s:
-                    candidate_sets["diffusion-refined"] = s["diff"]
-                spec_parts, capability = [], {}
-                for name, values in candidate_sets.items():
-                    auc = safe_auroc(np.r_[np.zeros(len(s["cal"])), np.ones(len(values))], np.r_[s["cal"], values])
-                    used = bool(auc >= 0.9 or name == "synthetic 100%")
+                groups = {**s, "sev_levels": sev_levels}
+                # Label-free capability gate (decision.calibration_sets): a synthetic set joins the default
+                # policy only if the detector separates it from held-out good parts (AUROC >= 0.9). Weaker
+                # sets mark the detection limit and are reported instead of driving the cost optimum to
+                # "reject everything". The same function drives the app's "apply cost-optimal" button.
+                _, report = calibration_sets(groups)
+                capability = {}
+                for name, values, auc, used in report:
                     capability[name] = {"synthetic_auroc": auc, "used_for_default_threshold": used, "n": int(len(values))}
                     capability_rows.append({"category": category, "method": method, "calibration_set": name,
                                             "synthetic_auroc": auc, "n": int(len(values)), "used": used})
-                    if used:
-                        spec_parts.append(values)
-                spec = np.concatenate(spec_parts)
                 info["detection_capability"] = capability
                 policies = {
-                    "synthetic_cost": select_threshold_by_cost(
-                        np.r_[s["cal"], spec], np.r_[np.zeros(len(s["cal"])), np.ones(len(spec))], costs),
+                    "synthetic_cost": default_policy(groups, costs),
                     "synthetic_conspicuous_cost": select_threshold_by_cost(np.r_[s["cal"], s["syn"]], syn_labels, costs),
                     "good_quantile": {"threshold": select_threshold_good_quantile(s["cal"], 0.01, 5.0), "band": 5.0},
-                    "real_oracle_cost": select_threshold_by_cost(s["test"][oracle], labels[oracle], costs),
+                    "real_oracle_cost": select_threshold_by_cost(s["test"][oracle], labels[oracle], costs, smooth=True),
                 }
                 if "diff" in s:
                     diff_labels = np.r_[np.zeros(len(s["cal"])), np.ones(len(s["diff"]))]
-                    policies["diffusion_cost"] = select_threshold_by_cost(np.r_[s["cal"], s["diff"]], diff_labels, costs)
+                    policies["diffusion_cost"] = select_threshold_by_cost(np.r_[s["cal"], s["diff"]], diff_labels,
+                                                                          costs, smooth=True)
                     both = np.r_[s["syn"], s["diff"]]
                     policies["synthetic_plus_diffusion_cost"] = select_threshold_by_cost(
-                        np.r_[s["cal"], both], np.r_[np.zeros(len(s["cal"])), np.ones(len(both))], costs)
+                        np.r_[s["cal"], both], np.r_[np.zeros(len(s["cal"])), np.ones(len(both))], costs, smooth=True)
                 info["policies"] = {name: {"threshold": float(p["threshold"]), "band": float(p["band"])}
                                     for name, p in policies.items()}
                 info["default_policy"] = "synthetic_cost"
                 info["policy_notes"] = {
                     "synthetic_cost": "default: held-out good + every synthetic set the detector can reliably separate "
-                                      "(severity 100/50/25% and diffusion-refined; synthetic AUROC >= 0.9)",
-                    "synthetic_conspicuous_cost": "held-out good + full-strength synthetic defects only (first version)",
+                                      "(severity 100/50/25% and diffusion-refined; synthetic AUROC >= 0.9); cost "
+                                      "minimised on kernel-smoothed score distributions",
+                    "synthetic_conspicuous_cost": "held-out good + full-strength synthetic defects only, raw counts "
+                                                  "(first version)",
                     "good_quantile": "1% false-reject quantile of held-out good parts (no defects at all)",
-                    "real_oracle_cost": "labelled real defects (oracle split) - comparison only, never deployed"}
+                    "real_oracle_cost": "labelled real defects (oracle split, smoothed like the default) - comparison "
+                                        "only, never deployed"}
             reference = reference_from_stats(stats[(stats.category == category) & (stats.role == "model_train_good")])
             calibration = {"category": category, "info": CATEGORY_INFO.get(category, {}), "methods": methods,
                            "health_reference": reference, "costs": costs.to_dict(),
@@ -614,7 +713,8 @@ class Pipeline:
     def _export_extractor(self) -> None:
         from .features import count_parameters, export_onnx
 
-        report = export_onnx(self.extractor.cpu(), self.cfg.artifacts / "feature_extractor.onnx", self.cfg.image_size)
+        report = export_onnx(self.extractor.cpu(), self.cfg.artifacts / "feature_extractor.onnx", self.cfg.image_size,
+                             check_sizes=self.cfg.size_grid)
         report["parameters"] = count_parameters(self.extractor)
         save_json({"version": __version__, "created": time.strftime("%Y-%m-%d %H:%M:%S"),
                    "categories": list(self.cfg.categories), "feature_extractor": report,
@@ -637,14 +737,17 @@ class Pipeline:
             operating = (test.role == "operating_test").to_numpy()
             masks = self.test_masks(category)
             maps_by_method = {}
+            sev_levels = None
             for method in ("patchcore", "vae", "mean"):
                 data, _ = self._load_scores(method, category)
+                if sev_levels is None and "sev_levels" in data:
+                    sev_levels = np.asarray(data["sev_levels"]).round(3).tolist()
                 maps_by_method[method] = normalize_map(data["test_maps"].astype(np.float32),
                                                        calibration["methods"][method]["pixel_scale"])
             w = calibration["methods"]["ensemble"]["weight_patchcore"]
             maps_by_method["ensemble"] = w * maps_by_method["patchcore"] + (1 - w) * maps_by_method["vae"]
             score_dump[category] = {"test_labels": labels.tolist(), "test_defect_types": test.defect_type.tolist(),
-                                    "test_roles": test.role.tolist(), "methods": {}}
+                                    "test_roles": test.role.tolist(), "sev_levels": sev_levels, "methods": {}}
             for method in METHODS:
                 scores = np.asarray(normalized[method]["test"])
                 low, high = bootstrap_auroc_ci(labels, scores, n_boot=self.cfg.bootstrap, seed=self.cfg.seed)
@@ -842,7 +945,7 @@ class Pipeline:
     # ------------------------------------------------------------ few-shot
     def stage_few_shot(self) -> None:
         category = self.cfg.few_shot_category
-        feats = self._features(category)
+        feats = {name: self._feature_set(category, name, self.cfg.image_size)[3] for name in ("train", "test")}
         test = self.paths(category, split="test")
         labels = test.label.to_numpy()
         masks = self.test_masks(category)
@@ -859,7 +962,7 @@ class Pipeline:
                 n_vec = grids.shape[0] * grids.shape[1] * grids.shape[2]
                 ratio = 1.0 if n_vec <= 20000 else max(0.1, 20000 / n_vec)
                 bank = MemoryBank(build_memory_bank(grids, ratio, seed=self.cfg.seed))
-                scores, maps = score_grids(feats["test"], bank, config)
+                scores, maps = score_grids(feats["test"], bank, config, map_size=MAP)
                 row = {"category": category, "shots": int(min(shots, n_train)), "repeat": rep,
                        "bank_vectors": len(bank), "image_auroc": safe_auroc(labels, scores),
                        "pixel_auroc": pixel_auroc(list(maps), masks)}
@@ -936,6 +1039,11 @@ class Pipeline:
         summary = {
             "categories": list(self.cfg.categories),
             "backbone": self.cfg.backbone, "image_size": self.cfg.image_size,
+            "patchcore_configs": {c: {k: v for k, v in load_json(self.cfg.artifacts / c / "calibration.json")
+                                      ["methods"]["patchcore"]["config"].items()
+                                      if k in ("image_size", "pool_size", "bank_rotations", "coreset_ratio",
+                                               "blur_sigma", "score_mode", "topk_fraction")}
+                                  for c in self.cfg.categories},
             "macro": macro.round(4).to_dict(orient="index"),
             "operating_default_policy": default_ops.round(4).to_dict(orient="index"),
             "latency_ms_median": latency.groupby("method").latency_ms_median.median().round(1).to_dict(),

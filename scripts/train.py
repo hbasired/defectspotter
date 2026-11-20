@@ -29,7 +29,14 @@ def main() -> None:
     parser.add_argument("--categories", nargs="+", default=list(defaults.categories))
     parser.add_argument("--few-shot-category", default=defaults.few_shot_category)
     parser.add_argument("--backbone", default=defaults.backbone)
-    parser.add_argument("--image-size", type=int, default=defaults.image_size)
+    parser.add_argument("--image-size", type=int, default=defaults.image_size,
+                        help="default resolution (few-shot onboarding, ONNX export example)")
+    parser.add_argument("--size-grid", type=int, nargs="+", default=list(defaults.size_grid),
+                        help="PatchCore input resolutions searched per product (label-free selection)")
+    parser.add_argument("--pool-grid", type=int, nargs="+", default=list(defaults.pool_grid),
+                        help="feature aggregation sizes searched (3 = PatchCore 3x3 average, 1 = raw descriptors)")
+    parser.add_argument("--object-rotations", type=int, nargs="+", default=list(defaults.object_rotation_grid),
+                        help="numbers of 90-degree rotations of good parts in the bank searched for objects")
     parser.add_argument("--vae-epochs", type=int, default=defaults.vae_epochs)
     parser.add_argument("--vae-latent-dim", type=int, default=defaults.vae_latent_dim)
     parser.add_argument("--bootstrap", type=int, default=defaults.bootstrap)
@@ -49,11 +56,15 @@ def main() -> None:
         bootstrap=100 if args.quick else args.bootstrap, device=args.device, stages=tuple(args.stages),
         costs=CostModel(defect_prevalence=args.prevalence, cost_escape=args.cost_escape,
                         cost_false_reject=args.cost_false_reject, cost_review=args.cost_review),
+        size_grid=tuple(args.size_grid), pool_grid=tuple(args.pool_grid),
+        object_rotation_grid=tuple(args.object_rotations),
     )
     if args.quick:
         config.coreset_grid = (0.05,)
         config.blur_grid = (4.0,)
         config.score_modes = ("max",)
+        config.size_grid = (args.image_size,)
+        config.object_rotation_grid = (1,)
     Pipeline(config).run()
 
 
