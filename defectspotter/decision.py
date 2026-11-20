@@ -34,6 +34,10 @@ class CostModel:
     cost_false_reject: float = 2.0    # good part scrapped or reworked
     cost_review: float = 0.30         # ~20 s of an inspector's time for a CHECK
     review_capacity: float = 0.10     # at most 10% of parts may be routed to CHECK
+    # Thresholds are *planned* to use at most this share of the capacity on calibration data: headroom for
+    # lot-to-lot shift between qualification and production (on MVTec, test-good parts score slightly
+    # above held-out training-good parts), as in any capacity planning (queues explode near 100% load).
+    review_planning_share: float = 0.5
     human_detection_rate: float = 0.80  # 100% manual inspection catches ~80% of defects (literature range 70-90%)
     parts_per_day: int = 20000
 
@@ -191,25 +195,27 @@ DEFAULT_BANDS = (0, 2.5, 5, 7.5, 10, 12.5, 15)
 
 def select_threshold_by_cost(scores, labels, costs: CostModel, bands=DEFAULT_BANDS,
                              thresholds=THRESHOLD_GRID, smooth: bool = False) -> dict:
-    """Minimise expected cost over (threshold, band) subject to the review-capacity limit.
+    """Minimise expected cost over (threshold, band) subject to the planned review load
+    (``review_capacity x review_planning_share`` of all parts).
 
     ``smooth=True`` evaluates the cost on kernel-smoothed distributions (used for the label-free default
     policy); the returned metrics are always the empirical ones on ``scores``/``labels``.
     """
     scores = np.asarray(scores, np.float64)
     labels = np.asarray(labels).astype(int)
+    capacity = costs.review_capacity * costs.review_planning_share
     best = None
     for band in bands:
         if smooth:
             frame = smoothed_rates(scores[labels == 0], scores[labels == 1], thresholds, band, costs)
-            frame = frame[frame.review_rate <= costs.review_capacity]
+            frame = frame[frame.review_rate <= capacity]
             candidates = [(round(r.expected_cost_per_1000, 6), r.escape_rate, band, r.threshold)
                           for r in frame.itertuples()]
         else:
             candidates = []
             for t in thresholds:
                 m = operating_metrics(scores, labels, t, band, costs)
-                if m["review_rate"] <= costs.review_capacity:
+                if m["review_rate"] <= capacity:
                     candidates.append((round(m["expected_cost_per_1000"], 6), m["escape_rate"], band, float(t)))
         for key in candidates:
             if best is None or key < best:

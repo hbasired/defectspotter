@@ -147,7 +147,7 @@ def pipeline_html() -> str:
   oracle chosen with labels.</p></div>
  <div class="ds-card"><h3>Built to mirror a real line</h3>
   <ul class="ds-note">
-   <li>Cost model: 1% prevalence, escape ≫ false reject, inspector time per CHECK, review capacity ≤ 10% of parts.</li>
+   <li>Cost model: 1% prevalence, escape ≫ false reject, inspector time per CHECK, review capacity ≤ 10% of parts, planned at ≤ 50% utilisation (headroom for lot-to-lot drift).</li>
    <li>Acquisition health gate: if brightness / contrast / focus is outside the qualified range, no automatic
        decision is taken - PASS or REJECT becomes CHECK (no blind shipping, no scrapping good parts under bad light).</li>
    <li>Human review queue + audit log for every CHECK; the model never silently retrains.</li>

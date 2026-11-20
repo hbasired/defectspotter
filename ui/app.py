@@ -546,7 +546,8 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
                     c_escape = gr.Number(400, label="Cost of an escape (per part)")
                     c_fr = gr.Number(2, label="Cost of a false reject (per part)")
                     c_review = gr.Number(0.30, label="Cost of a human CHECK (per part)")
-                    capacity = gr.Slider(1, 30, value=10, step=1, label="Inspector capacity (% of parts)")
+                    capacity = gr.Slider(1, 30, value=10, step=1, label="Inspector capacity (% of parts)",
+                                         info="thresholds are planned to use ≤ 50% of it (headroom for drift)")
                     per_day = gr.Number(20000, label="Parts per day", precision=0)
                 with gr.Row():
                     eval_set = gr.Radio(["Operating test split (real defects)", "Calibration (good + synthetic defects)"],
