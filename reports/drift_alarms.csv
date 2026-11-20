@@ -4,7 +4,7 @@ bottle,sharpness,0,81,
 bottle,anomaly_score (winsorised),2,91,153.0
 screw,brightness,35,61,151.0
 screw,sharpness,0,73,160.0
-screw,anomaly_score (winsorised),0,159,159.0
+screw,anomaly_score (winsorised),0,77,152.0
 carpet,brightness,23,69,177.0
 carpet,sharpness,0,73,
 carpet,anomaly_score (winsorised),19,64,151.0

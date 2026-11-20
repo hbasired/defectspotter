@@ -356,6 +356,31 @@ operating split measures the effect).
 * **Expected cost per 1,000 parts:** the cost model above at 1% prevalence. **Latency:** end-to-end milliseconds per
   part on a 4-core CPU.
 
+## 10b. Results (held-out MVTec test images)
+
+| | bottle | screw | carpet | mean |
+|---|---|---|---|---|
+| **PatchCore image AUROC** (deployed) | 1.000 | **0.997** | 0.940 | **0.979** |
+| PatchCore pixel AUROC | 0.980 | 0.996 | 0.983 | 0.986 |
+| PatchCore AUPRO @ 30% | 0.945 | 0.972 | 0.931 | 0.949 |
+| **Feature-space VAE** image AUROC (v3) | 0.997 | 0.798 | 0.903 | 0.899 |
+| Pixel VAE image AUROC (v1) | 0.902 | 0.477 | 0.671 | 0.683 |
+| Mean-image baseline image AUROC | 0.975 | 0.277 | 0.435 | 0.562 |
+
+**Deployed decisions on the operating test split** (thresholds chosen without real defects):
+
+| product | model | false rejects | escapes | parts sent to a human (CHECK) |
+|---|---|---|---|---|
+| bottle | qualification lot | 0% | 0% | 0% |
+| screw | qualification lot (pose-normalised) | 0% | 6.4% | 0.2% |
+| carpet | **re-qualified for the current lot** (10 good parts) | 0% | 8.8% | 5.7% (was 49.6% before re-qualification) |
+
+How the project got here (image AUROC, PatchCore): v1 bottle 1.000 / screw 0.935 / carpet 0.880 → v2 (per-product
+recipe) 1.000 / 0.983 / 0.940 → v3 (pose-normalised screws) 1.000 / 0.997 / 0.940. The label-free threshold lands within
+1.5–3.5 points of the threshold a plant would choose with labelled defects. Note: the lot-shift test found no change for
+screw (p = 0.86), so its qualification model stays deployed even though re-qualifying it would also have lowered its
+escapes on the test split — the decision rule is fixed in advance, not picked from test results.
+
 ## 11. Responsible operation and monitoring
 
 * **Human in the loop:** every CHECK goes to the review queue; the inspector's verdict and note go into an audit log.

@@ -9,7 +9,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 R = ROOT / "reports"
-LABELS = {"patchcore": "PatchCore", "vae": "VAE", "mean": "Mean baseline", "ensemble": "Ensemble"}
+LABELS = {"patchcore": "PatchCore", "fvae": "Feature VAE", "vae": "Pixel VAE", "mean": "Mean baseline", "ensemble": "Ensemble"}
 
 
 def table(frame: pd.DataFrame) -> str:
@@ -31,6 +31,8 @@ def recipe_table() -> str | None:
     rows = pd.DataFrame({
         "product": sel.category,
         "input": sel.image_size.astype(int).astype(str) + " px",
+        "pose": (sel["align"].astype(str).str.lower() == "true").map({True: "normalised", False: "as captured"})
+        if "align" in sel else "as captured",
         "descriptors": sel.pool_size.map(lambda v: "3×3 average" if int(v) == 3 else "raw"),
         "good parts in bank": sel.bank_rotations.map(lambda v: "as captured" if int(v) == 1 else f"{int(v)} orientations"),
         "bank": sel.bank_vectors.astype(int).map("{:,}".format) + " vectors (" + sel.bank_mb.map("{:.1f}".format) + " MB)",
@@ -54,9 +56,18 @@ def build() -> str:
     macro = metrics.groupby("method")[["image_auroc", "pixel_auroc", "aupro_30"]].mean().round(3).reset_index()
     macro["method"] = macro.method.map(LABELS)
     out.append("### Mean over the three products\n" + table(macro))
+    req_path = R / "requalification.csv"
+    if req_path.exists():
+        rq = pd.read_csv(req_path)
+        rq = rq.assign(**{"lot-shift test": rq.apply(lambda r: f"p = {r.p_value:.3g} → " + ("re-qualified" if r.lot_shift else "no change"), axis=1),
+                          "good parts → CHECK": rq.apply(lambda r: f"{100 * r.base_good_check_rate:.1f}% → {100 * r.requal_good_check_rate:.1f}%" if r.lot_shift else "—", axis=1),
+                          "escapes": rq.apply(lambda r: f"{100 * r.base_escape_rate:.1f}% → {100 * r.requal_escape_rate:.1f}%" if r.lot_shift else "—", axis=1),
+                          "false rejects": rq.apply(lambda r: f"{100 * r.base_false_reject_rate:.1f}% → {100 * r.requal_false_reject_rate:.1f}%" if r.lot_shift else "—", axis=1)})
+        out.append("### New production lot: label-free lot-shift test and re-qualification (operating split)\n" + table(
+            rq[["category", "n_good_current_lot", "lot-shift test", "good parts → CHECK", "escapes", "false rejects"]]))
     ops = pd.read_csv(R / "operating_metrics.csv")
     o = ops[ops.policy.isin(["synthetic_cost", "real_oracle_cost"])].copy()
-    o = o[o.method.isin(["patchcore", "vae", "ensemble"])]
+    o = o[o.method.isin(["patchcore", "fvae", "ensemble"])]
     o["method"] = o.method.map(LABELS)
     o = o.assign(**{"threshold ± band": o.threshold.map("{:.1f}".format) + " ± " + o.band.map("{:.1f}".format),
                     "false rejects": (100 * o.false_reject_rate).map("{:.1f}%".format),
@@ -69,7 +80,7 @@ def build() -> str:
     cols = ["category", "method", "synthetic_threshold", "real_threshold", "gap_synthetic_vs_real"]
     if "diffusion_threshold" in thr:
         cols += ["diffusion_threshold", "gap_diffusion_vs_real"]
-    t = thr[thr.method.isin(["patchcore", "vae"])][cols].round(1)
+    t = thr[thr.method.isin(["patchcore", "fvae"])][cols].round(1)
     t["method"] = t.method.map(LABELS)
     out.append("### Threshold chosen with synthetic defects vs real defects (0–100 scale)\n" + table(t))
     lat = pd.read_csv(R / "latency.csv")

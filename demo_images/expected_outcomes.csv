@@ -1,0 +1,27 @@
+file,product,ground truth,expected decision,expected score,model,what to show
+bottle/good_017.png,bottle,good,PASS,22.3,deployed PatchCore,passes cleanly
+bottle/good_008.png,bottle,good,PASS,26.6,deployed PatchCore,passes cleanly
+bottle/defect_broken_large_004.png,bottle,defective: broken large,REJECT,71.6,deployed PatchCore,rejected; heat map on the defect
+bottle/defect_broken_small_010.png,bottle,defective: broken small,REJECT,69.1,deployed PatchCore,rejected; heat map on the defect
+bottle/defect_contamination_009.png,bottle,defective: contamination,REJECT,64.8,deployed PatchCore,rejected; heat map on the defect
+bottle/defect_contamination_borderline_003.png,bottle,defective: contamination,CHECK,38.1,deployed PatchCore,borderline → human review
+drift_demo/bottle_good_part_lamp_failure.png,bottle,good (lamp failure simulated),CHECK,high,deployed PatchCore,camera-health gate: no automatic REJECT on an unqualified image
+carpet/good_005.png,carpet,good,PASS,16.1,current lot (re-qualified),passes cleanly
+carpet/good_010.png,carpet,good,PASS,25.3,current lot (re-qualified),passes cleanly
+carpet/defect_color_011.png,carpet,defective: color,REJECT,60.6,current lot (re-qualified),rejected; heat map on the defect
+carpet/defect_cut_006.png,carpet,defective: cut,REJECT,106.8,current lot (re-qualified),rejected; heat map on the defect
+carpet/defect_hole_004.png,carpet,defective: hole,REJECT,83.7,current lot (re-qualified),rejected; heat map on the defect
+carpet/defect_metal_contamination_006.png,carpet,defective: metal contamination,REJECT,68.3,current lot (re-qualified),rejected; heat map on the defect
+carpet/defect_thread_010.png,carpet,defective: thread,REJECT,112.5,current lot (re-qualified),rejected; heat map on the defect
+carpet/defect_color_borderline_006.png,carpet,defective: color,CHECK,38.5,current lot (re-qualified),borderline → human review
+drift_demo/carpet_good_part_lamp_failure.png,carpet,good (lamp failure simulated),CHECK,high,current lot (re-qualified),camera-health gate: no automatic REJECT on an unqualified image
+screw/good_025.png,screw,good,PASS,21.2,deployed PatchCore,passes cleanly
+screw/good_020.png,screw,good,PASS,23.9,deployed PatchCore,passes cleanly
+screw/defect_manipulated_front_010.png,screw,defective: manipulated front,REJECT,49.3,deployed PatchCore,rejected; heat map on the defect
+screw/defect_scratch_head_009.png,screw,defective: scratch head,REJECT,48.4,deployed PatchCore,rejected; heat map on the defect
+screw/defect_scratch_neck_003.png,screw,defective: scratch neck,REJECT,60.2,deployed PatchCore,rejected; heat map on the defect
+screw/defect_thread_side_014.png,screw,defective: thread side,REJECT,43.7,deployed PatchCore,rejected; heat map on the defect
+screw/defect_thread_top_001.png,screw,defective: thread top,REJECT,52.7,deployed PatchCore,rejected; heat map on the defect
+screw/defect_manipulated_front_borderline_021.png,screw,defective: manipulated front,CHECK,36.3,deployed PatchCore,borderline → human review
+drift_demo/screw_good_part_lamp_failure.png,screw,good (lamp failure simulated),CHECK,high,deployed PatchCore,camera-health gate: no automatic REJECT on an unqualified image
+carpet_new_lot_good_parts/ (all files),carpet,good parts of the current lot,—,—,re-qualification input,Drift & new lots → section C: upload them all → Re-qualify

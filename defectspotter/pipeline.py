@@ -1067,7 +1067,7 @@ class Pipeline:
             if shift["shifted"]:
                 folder.mkdir(parents=True, exist_ok=True)
                 np.save(folder / "patchcore_bank.npy", lot["bank"])
-                save_json({k: v for k, v in lot.items() if k not in ("bank", "synthetic_examples")}
+                save_json({k: v for k, v in lot.items() if k not in ("bank", "synthetic_examples") and not k.startswith("_")}
                           | {"source": "good parts of the current lot (MVTec test split, oracle part)",
                              "created": time.strftime("%Y-%m-%d %H:%M:%S")}, folder / "requalification.json")
             elif folder.exists():
@@ -1320,7 +1320,7 @@ class Pipeline:
             "backbone": self.cfg.backbone, "image_size": self.cfg.image_size,
             "patchcore_configs": {c: {k: v for k, v in load_json(self.cfg.artifacts / c / "calibration.json")
                                       ["methods"]["patchcore"]["config"].items()
-                                      if k in ("image_size", "pool_size", "bank_rotations", "coreset_ratio",
+                                      if k in ("image_size", "align", "pool_size", "bank_rotations", "coreset_ratio",
                                                "blur_sigma", "score_mode", "topk_fraction")}
                                   for c in self.cfg.categories},
             "macro": macro.round(4).to_dict(orient="index"),

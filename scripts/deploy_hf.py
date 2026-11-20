@@ -20,7 +20,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-INCLUDE = ["app.py", "defectspotter", "ui", "artifacts", "reports", "examples", "LICENSE"]
+INCLUDE = ["app.py", "defectspotter", "ui", "artifacts", "reports", "examples", "docs", "LICENSE"]
 SPACE_REQUIREMENTS = """numpy>=1.26
 opencv-python-headless>=4.9
 pillow>=10.0
@@ -60,11 +60,12 @@ tags:
 
 Upload a part image (bottle, screw or carpet) and get an anomaly score, a heat map of the suspected defect and a
 **PASS / CHECK / REJECT** decision. The detectors were trained on **good parts only**: a PatchCore-style memory bank on
-frozen ResNet-18 features (ONNX), a convolutional VAE and an aligned mean-image baseline. Thresholds are chosen with
+frozen ResNet-18 features (ONNX), a feature-space VAE and a pixel VAE (GenAI) and an aligned mean-image baseline. Thresholds are chosen with
 synthetic defects and an explicit cost model; CHECK goes to a human review queue; camera/lighting drift is monitored.
 
 * Source code, notebook and full report: see the GitHub repository linked in the app.
 * Data: [MVTec AD](https://www.mvtec.com/research-teaching/datasets/mvtec-ad) — CC BY-NC-SA 4.0, research and teaching only.
+* The app is a presentation that ends in the live demo (last tab); the 📖 Guide tab explains every model and concept.
 * API: `/inspect_part`, `/inspect_batch`, `/health` (see "Use via API").
 
 Space: `{space_id}`

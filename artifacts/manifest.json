@@ -4,7 +4,7 @@
     "screw",
     "carpet"
   ],
-  "created": "2026-11-20 03:16:10",
+  "created": "2026-11-20 06:27:32",
   "dataset": {
     "mirror": "foersben/mvtec-ad",
     "name": "MVTec AD",
@@ -29,7 +29,7 @@
       ]
     },
     "image_size": 224,
-    "max_abs_error_vs_torch": 2.4437904357910156e-06,
+    "max_abs_error_vs_torch": 2.384185791015625e-06,
     "opset": 17,
     "outputs": {
       "1": "patch_features_p1",

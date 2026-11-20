@@ -14,83 +14,97 @@
 ## Results
 
 ### Per-product PatchCore recipe (chosen without real defects)
-| product | input | descriptors | good parts in bank | bank | score | label-free objective |
-|---|---|---|---|---|---|---|
-| bottle | 224 px | raw | as captured | 1,309 vectors (1.0 MB) | max patch | 0.9361 |
-| screw | 288 px | raw | as captured | 3,318 vectors (2.4 MB) | top 1% of map | 0.9159 |
-| carpet | 224 px | raw | as captured | 1,756 vectors (1.3 MB) | top 5% of map | 0.7941 |
+| product | input | pose | descriptors | good parts in bank | bank | score | label-free objective |
+|---|---|---|---|---|---|---|---|
+| bottle | 224 px | as captured | raw | as captured | 1,309 vectors (1.0 MB) | max patch | 0.9361 |
+| screw | 288 px | normalised | raw | as captured | 3,318 vectors (2.4 MB) | top 1% of map | 0.9492 |
+| carpet | 224 px | as captured | raw | as captured | 1,756 vectors (1.3 MB) | top 5% of map | 0.7941 |
 
 ### Detection and localisation (MVTec test images)
 | category | method | image AUROC [95% CI] | pixel AUROC | AUPRO@30% |
 |---|---|---|---|---|
 | bottle | PatchCore | 1.000 [1.000–1.000] | 0.980 | 0.945 |
-| bottle | VAE | 0.902 [0.798–0.972] | 0.897 | 0.723 |
+| bottle | Feature VAE | 0.997 [0.988–1.000] | 0.974 | 0.905 |
+| bottle | Pixel VAE | 0.902 [0.798–0.972] | 0.897 | 0.723 |
 | bottle | Mean baseline | 0.975 [0.943–0.996] | 0.954 | 0.836 |
 | bottle | Ensemble | 1.000 [1.000–1.000] | 0.980 | 0.945 |
-| screw | PatchCore | 0.983 [0.966–0.996] | 0.993 | 0.964 |
-| screw | VAE | 0.477 [0.366–0.590] | 0.959 | 0.830 |
+| screw | PatchCore | 0.997 [0.992–1.000] | 0.996 | 0.972 |
+| screw | Feature VAE | 0.798 [0.712–0.877] | 0.978 | 0.905 |
+| screw | Pixel VAE | 0.477 [0.366–0.590] | 0.959 | 0.830 |
 | screw | Mean baseline | 0.277 [0.192–0.363] | 0.636 | 0.240 |
-| screw | Ensemble | 0.983 [0.966–0.996] | 0.993 | 0.964 |
+| screw | Ensemble | 0.994 [0.987–0.999] | 0.996 | 0.974 |
 | carpet | PatchCore | 0.940 [0.893–0.974] | 0.983 | 0.931 |
-| carpet | VAE | 0.671 [0.558–0.779] | 0.914 | 0.697 |
+| carpet | Feature VAE | 0.902 [0.848–0.949] | 0.983 | 0.900 |
+| carpet | Pixel VAE | 0.671 [0.558–0.779] | 0.914 | 0.697 |
 | carpet | Mean baseline | 0.435 [0.337–0.537] | 0.744 | 0.593 |
-| carpet | Ensemble | 0.940 [0.893–0.974] | 0.983 | 0.931 |
+| carpet | Ensemble | 0.938 [0.890–0.973] | 0.985 | 0.932 |
 
 ### Mean over the three products
 | method | image_auroc | pixel_auroc | aupro_30 |
 |---|---|---|---|
-| Ensemble | 0.974 | 0.985 | 0.946 |
+| Ensemble | 0.978 | 0.987 | 0.95 |
+| Feature VAE | 0.899 | 0.978 | 0.903 |
 | Mean baseline | 0.562 | 0.778 | 0.556 |
-| PatchCore | 0.974 | 0.985 | 0.946 |
-| VAE | 0.683 | 0.923 | 0.75 |
+| PatchCore | 0.979 | 0.986 | 0.949 |
+| Pixel VAE | 0.683 | 0.923 | 0.75 |
+
+### New production lot: label-free lot-shift test and re-qualification (operating split)
+| category | n_good_current_lot | lot-shift test | good parts → CHECK | escapes | false rejects |
+|---|---|---|---|---|---|
+| bottle | 7 | p = 0.385 → no change | — | — | — |
+| screw | 14 | p = 0.862 → no change | — | — | — |
+| carpet | 10 | p = 0.00569 → re-qualified | 50.0% → 5.6% | 5.3% → 8.8% | 0.0% → 0.0% |
 
 ### Operating point on the held-out operating split (1% prevalence cost model)
 | category | method | policy | threshold ± band | false rejects | escapes | CHECK load | cost / 1,000 parts |
 |---|---|---|---|---|---|---|---|
 | bottle | PatchCore | real_oracle_cost | 41.5 ± 5.0 | 0.0% | 0.0% | 0.1% | 0 |
 | bottle | PatchCore | synthetic_cost | 39.0 ± 5.0 | 0.0% | 0.0% | 0.0% | 0 |
-| bottle | VAE | real_oracle_cost | 33.0 ± 5.0 | 7.7% | 17.1% | 22.9% | 904 |
-| bottle | VAE | synthetic_cost | 7.5 ± 2.5 | 100.0% | 0.0% | 0.0% | 1980 |
+| bottle | Feature VAE | real_oracle_cost | 31.5 ± 2.5 | 7.7% | 0.0% | 15.2% | 198 |
+| bottle | Feature VAE | synthetic_cost | 33.0 ± 2.5 | 7.7% | 0.0% | 0.0% | 152 |
 | bottle | Ensemble | real_oracle_cost | 41.5 ± 5.0 | 0.0% | 0.0% | 0.1% | 0 |
 | bottle | Ensemble | synthetic_cost | 39.0 ± 5.0 | 0.0% | 0.0% | 0.0% | 0 |
-| screw | PatchCore | real_oracle_cost | 34.5 ± 2.5 | 0.0% | 9.0% | 0.2% | 360 |
-| screw | PatchCore | synthetic_cost | 34.0 ± 2.5 | 0.0% | 9.0% | 0.2% | 359 |
-| screw | VAE | real_oracle_cost | 0.5 ± 5.0 | 81.5% | 0.0% | 18.4% | 1668 |
-| screw | VAE | synthetic_cost | 1.0 ± 5.0 | 77.8% | 0.0% | 22.1% | 1606 |
-| screw | Ensemble | real_oracle_cost | 34.5 ± 2.5 | 0.0% | 9.0% | 0.2% | 360 |
-| screw | Ensemble | synthetic_cost | 34.0 ± 2.5 | 0.0% | 9.0% | 0.2% | 359 |
+| screw | PatchCore | real_oracle_cost | 33.0 ± 2.5 | 0.0% | 5.1% | 0.1% | 205 |
+| screw | PatchCore | synthetic_cost | 36.5 ± 5.0 | 0.0% | 6.4% | 0.2% | 257 |
+| screw | Feature VAE | real_oracle_cost | 28.0 ± 0.0 | 37.0% | 17.9% | 0.0% | 1451 |
+| screw | Feature VAE | synthetic_cost | 46.5 ± 7.5 | 7.4% | 64.1% | 3.9% | 2722 |
+| screw | Ensemble | real_oracle_cost | 32.5 ± 2.5 | 0.0% | 5.1% | 3.8% | 216 |
+| screw | Ensemble | synthetic_cost | 33.0 ± 2.5 | 0.0% | 6.4% | 3.8% | 268 |
 | carpet | PatchCore | real_oracle_cost | 37.0 ± 0.0 | 5.6% | 10.5% | 0.0% | 531 |
 | carpet | PatchCore | synthetic_cost | 35.5 ± 5.0 | 0.0% | 5.3% | 49.6% | 359 |
-| carpet | VAE | real_oracle_cost | 35.5 ± 2.5 | 44.4% | 36.8% | 5.6% | 2370 |
-| carpet | VAE | synthetic_cost | 2.0 ± 15.0 | 100.0% | 0.0% | 0.0% | 1980 |
-| carpet | Ensemble | real_oracle_cost | 37.0 ± 0.0 | 5.6% | 10.5% | 0.0% | 531 |
-| carpet | Ensemble | synthetic_cost | 35.5 ± 5.0 | 0.0% | 5.3% | 49.6% | 359 |
+| carpet | Feature VAE | real_oracle_cost | 30.5 ± 0.0 | 11.1% | 12.3% | 0.0% | 711 |
+| carpet | Feature VAE | synthetic_cost | 30.5 ± 2.5 | 0.0% | 10.5% | 38.6% | 537 |
+| carpet | Ensemble | real_oracle_cost | 35.0 ± 0.0 | 0.0% | 10.5% | 0.0% | 421 |
+| carpet | Ensemble | synthetic_cost | 34.5 ± 5.0 | 0.0% | 5.3% | 55.2% | 376 |
 
 ### Threshold chosen with synthetic defects vs real defects (0–100 scale)
 | category | method | synthetic_threshold | real_threshold | gap_synthetic_vs_real | diffusion_threshold | gap_diffusion_vs_real |
 |---|---|---|---|---|---|---|
 | bottle | PatchCore | 39.0 | 41.5 | -2.5 | 39.0 | -2.5 |
-| bottle | VAE | 7.5 | 33.0 | -25.5 | 0.5 | -32.5 |
-| screw | PatchCore | 34.0 | 34.5 | -0.5 | 40.0 | 5.5 |
-| screw | VAE | 1.0 | 0.5 | 0.5 | 1.0 | 0.5 |
+| bottle | Feature VAE | 33.0 | 31.5 | 1.5 | 33.0 | 1.5 |
+| screw | PatchCore | 36.5 | 33.0 | 3.5 | 35.5 | 2.5 |
+| screw | Feature VAE | 46.5 | 28.0 | 18.5 | 56.5 | 28.5 |
 | carpet | PatchCore | 35.5 | 37.0 | -1.5 | 35.5 | -1.5 |
-| carpet | VAE | 2.0 | 35.5 | -33.5 | 2.0 | -33.5 |
+| carpet | Feature VAE | 30.5 | 30.5 | 0.0 | 30.5 | 0.0 |
 
 ### Latency per part (CPU, ONNX Runtime, end-to-end)
 | category | method | latency_ms_median | latency_ms_p95 |
 |---|---|---|---|
-| bottle | PatchCore | 60.0 | 65.0 |
-| bottle | VAE | 36.0 | 42.0 |
-| bottle | Mean baseline | 35.0 | 49.0 |
-| bottle | Ensemble | 130.0 | 151.0 |
-| screw | PatchCore | 101.0 | 141.0 |
-| screw | VAE | 30.0 | 37.0 |
-| screw | Mean baseline | 72.0 | 108.0 |
-| screw | Ensemble | 155.0 | 196.0 |
-| carpet | PatchCore | 73.0 | 107.0 |
-| carpet | VAE | 30.0 | 32.0 |
-| carpet | Mean baseline | 27.0 | 29.0 |
-| carpet | Ensemble | 133.0 | 159.0 |
+| bottle | PatchCore | 88.0 | 119.0 |
+| bottle | Feature VAE | 68.0 | 98.0 |
+| bottle | Pixel VAE | 35.0 | 37.0 |
+| bottle | Mean baseline | 34.0 | 49.0 |
+| bottle | Ensemble | 148.0 | 178.0 |
+| screw | PatchCore | 136.0 | 172.0 |
+| screw | Feature VAE | 56.0 | 69.0 |
+| screw | Pixel VAE | 30.0 | 31.0 |
+| screw | Mean baseline | 68.0 | 78.0 |
+| screw | Ensemble | 166.0 | 223.0 |
+| carpet | PatchCore | 84.0 | 115.0 |
+| carpet | Feature VAE | 59.0 | 75.0 |
+| carpet | Pixel VAE | 29.0 | 34.0 |
+| carpet | Mean baseline | 26.0 | 28.0 |
+| carpet | Ensemble | 155.0 | 199.0 |
 
 ### Few-shot onboarding (metal nut)
 | shots | image_auroc | pixel_auroc |
@@ -204,6 +218,9 @@ flowchart LR
 | v1: one fixed recipe (224 px, 3×3 averaging) for every product — carpet AUROC 0.88, screw 0.93 | **v2:** per-product label-free search over resolution, 3×3 vs raw descriptors and rotation-augmented banks; subtle (50%) synthetic defects join the selection objective; parsimony rule → **screw 0.983, carpet 0.940**, banks 1–2.4 MB |
 | v1: default thresholds from raw counts on ~50 good parts; reports from mixed runs (FRR up to 100% on carpet) | **v2:** smoothed cost optimum, CHECK band planned at ≤ 50% of inspector capacity, one shared recipe for pipeline and app, single consistent run; label-free vs real-defect threshold gap 9.7 → ≤ 2.5 points; ensemble weight chosen on subtle defects (v1 ensemble was below PatchCore on screw) |
 | v1: synthetic object defects mostly on the background (mask forced ≥ 45% "foreground"; a screw is ~13% of the frame) | Otsu-based part mask: defects land on the part; diffusion-refined defects are now detectable (AUROC 0.86–1.0 vs 0.4–0.6) and join the calibration |
+| v2: screws at random orientation (memory must cover every angle; 9% escapes) | **v3: pose normalisation** for elongated parts (principal axis horizontal, head left, part extent centred; maps warped back exactly) → screw AUROC **0.997**, escapes 6.4% |
+| v1/v2: pixel VAE barely beats chance on screw (0.48) | **v3: feature-space VAE** (reconstructs the backbone's feature map, spatial latent) → mean AUROC 0.68 → **0.90** |
+| v2: carpet's new lot sent ~50% of good parts to CHECK | **v3: label-free lot-shift test + re-qualification** from 10 good parts of the new lot → CHECK **5.7%**, false rejects 0% |
 | Dual-axis charts, dark hero | single-axis charts, colour-blind-validated palette, light theme |
 | ZeroGPU claim without `@spaces.GPU` | ZeroGPU-compatible entry point; deployment script with clear free-tier rules |
 
@@ -212,8 +229,9 @@ flowchart LR
 Transparency matters for a detector that is supposed to work without defect labels, so here is the full path:
 
 1. **Exploratory study (like the backbone study).** Test-set AUROC was used *only* to propose candidate design options:
-   raw descriptors for textures, 288 px input, 90°-rotated good parts in the bank. This is a mild optimistic bias on the
-   reported test numbers, the same kind the backbone study carries.
+   raw descriptors for textures, 288 px input, 90°-rotated good parts in the bank, pose normalisation for elongated parts,
+   a feature-space VAE. This is a mild optimistic bias on the reported test numbers, the same kind the backbone study
+   carries.
 2. **Label-free selection.** Within that search space every product's recipe is selected on held-out good parts +
    synthetic defects (full-strength and 50%-strength), never on real defects, with a parsimony rule: among recipes within a
    tolerance of the best objective, deploy the one with the cheapest nearest-neighbour search.
@@ -224,7 +242,10 @@ Transparency matters for a detector that is supposed to work without defect labe
    ~250 synthetic parts), so the tolerance was raised to 0.005; this changed only carpet's choice. Synthetic jitter
    (±5% brightness, slight defocus) did **not** reproduce the lot change, i.e. no label-free check we tried could have
    caught it — a real line catches it with the CHECK-rate / score drift alarms and re-qualifies on good parts from the new lot.
-4. **Default thresholds** come from the smoothed cost optimum on held-out good + capability-gated synthetic sets, with
+4. **Lot re-qualification** is triggered only by the label-free lot-shift test (good parts only, p < 0.01): it fires for
+   carpet and not for bottle or screw — even though re-qualifying screw would also have lowered its escapes on the test
+   split, the rule was fixed in advance and is not picked from test results.
+5. **Default thresholds** come from the smoothed cost optimum on held-out good + capability-gated synthetic sets, with
    the CHECK band planned at ≤ 50% of inspector capacity. Real defects only enter the separate `real_oracle_cost` policy,
    chosen on the oracle split and evaluated, like every policy, on the disjoint operating split.
 

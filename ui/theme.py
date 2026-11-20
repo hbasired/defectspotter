@@ -132,6 +132,7 @@ CSS = f"""
 .ds-section {{ font-size: 1.12rem; font-weight: 750; color: {INK}; margin: 14px 0 4px; padding-bottom: 4px;
   border-bottom: 2px solid #e8f1fc; }}
 .ds-settings {{ border: 1px solid rgba(42,120,214,0.22) !important; border-radius: 16px !important; background: #fbfdff !important; }}
+.ds-settings .ds-note, .ds-settings .prose {{ padding: 8px 14px !important; }}
 @media (max-width: 1100px) {{ .ds-kpis, .ds-hero .ds-kpis {{ grid-template-columns: repeat(2, minmax(0,1fr)); }}
   .ds-nav-row {{ grid-template-columns: repeat(3, minmax(0,1fr)); }} .ds-glossary {{ grid-template-columns: 1fr 1fr; }}
   .ds-grid3, .ds-grid4 {{ grid-template-columns: 1fr 1fr; }} }}

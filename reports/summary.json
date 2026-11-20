@@ -1,5 +1,5 @@
 {
-  "artifact_total_mb": 38.61,
+  "artifact_total_mb": 56.98,
   "backbone": "resnet18",
   "categories": [
     "bottle",
@@ -29,16 +29,22 @@
   },
   "image_size": 224,
   "latency_ms_median": {
-    "ensemble": 133.1,
-    "mean": 35.0,
-    "patchcore": 73.0,
+    "ensemble": 155.2,
+    "fvae": 58.7,
+    "mean": 33.9,
+    "patchcore": 88.4,
     "vae": 30.0
   },
   "macro": {
     "ensemble": {
-      "aupro_30": 0.9464,
-      "image_auroc": 0.9744,
-      "pixel_auroc": 0.9854
+      "aupro_30": 0.9503,
+      "image_auroc": 0.9776,
+      "pixel_auroc": 0.9869
+    },
+    "fvae": {
+      "aupro_30": 0.9034,
+      "image_auroc": 0.8992,
+      "pixel_auroc": 0.9782
     },
     "mean": {
       "aupro_30": 0.5563,
@@ -46,9 +52,9 @@
       "pixel_auroc": 0.7778
     },
     "patchcore": {
-      "aupro_30": 0.9464,
-      "image_auroc": 0.9744,
-      "pixel_auroc": 0.9854
+      "aupro_30": 0.9492,
+      "image_auroc": 0.9792,
+      "pixel_auroc": 0.9862
     },
     "vae": {
       "aupro_30": 0.7497,
@@ -57,17 +63,24 @@
     }
   },
   "mean_abs_threshold_gap": {
-    "ensemble": 1.5,
+    "ensemble": 1.17,
+    "fvae": 6.67,
     "mean": 23.67,
-    "patchcore": 1.5,
+    "patchcore": 2.5,
     "vae": 19.83
   },
   "operating_default_policy": {
     "ensemble": {
-      "escape_rate": 0.0475,
-      "expected_cost_per_1000": 239.6718,
+      "escape_rate": 0.0389,
+      "expected_cost_per_1000": 214.695,
       "false_reject_rate": 0.0,
-      "review_rate": 0.1661
+      "review_rate": 0.1968
+    },
+    "fvae": {
+      "escape_rate": 0.2488,
+      "expected_cost_per_1000": 1137.2254,
+      "false_reject_rate": 0.0503,
+      "review_rate": 0.1417
     },
     "mean": {
       "escape_rate": 0.1426,
@@ -76,10 +89,10 @@
       "review_rate": 0.0187
     },
     "patchcore": {
-      "escape_rate": 0.0475,
-      "expected_cost_per_1000": 239.6718,
+      "escape_rate": 0.0389,
+      "expected_cost_per_1000": 205.5351,
       "false_reject_rate": 0.0,
-      "review_rate": 0.1661
+      "review_rate": 0.1663
     },
     "vae": {
       "escape_rate": 0.0,
@@ -90,6 +103,7 @@
   },
   "patchcore_configs": {
     "bottle": {
+      "align": false,
       "bank_rotations": 1,
       "blur_sigma": 4.0,
       "coreset_ratio": 0.01,
@@ -99,6 +113,7 @@
       "topk_fraction": 0.01
     },
     "carpet": {
+      "align": false,
       "bank_rotations": 1,
       "blur_sigma": 2.0,
       "coreset_ratio": 0.01,
@@ -108,6 +123,7 @@
       "topk_fraction": 0.05
     },
     "screw": {
+      "align": true,
       "bank_rotations": 1,
       "blur_sigma": 4.0,
       "coreset_ratio": 0.01,

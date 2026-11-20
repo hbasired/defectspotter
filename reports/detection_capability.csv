@@ -3,6 +3,10 @@ bottle,patchcore,synthetic 100%,0.9776077097505669,84,True
 bottle,patchcore,synthetic 50%,0.9498299319727891,84,True
 bottle,patchcore,synthetic 25%,0.8397108843537415,84,False
 bottle,patchcore,diffusion-refined,1.0,12,True
+bottle,fvae,synthetic 100%,0.9577664399092971,84,True
+bottle,fvae,synthetic 50%,0.903344671201814,84,True
+bottle,fvae,synthetic 25%,0.7970521541950114,84,False
+bottle,fvae,diffusion-refined,0.9722222222222223,12,True
 bottle,vae,synthetic 100%,0.6065759637188209,84,True
 bottle,vae,synthetic 50%,0.5240929705215419,84,False
 bottle,vae,synthetic 25%,0.5025510204081632,84,False
@@ -15,10 +19,14 @@ bottle,ensemble,synthetic 100%,0.9776077097505669,84,True
 bottle,ensemble,synthetic 50%,0.9498299319727891,84,True
 bottle,ensemble,synthetic 25%,0.8397108843537415,84,False
 bottle,ensemble,diffusion-refined,1.0,12,True
-screw,patchcore,synthetic 100%,0.988525390625,128,True
-screw,patchcore,synthetic 50%,0.91259765625,128,True
-screw,patchcore,synthetic 25%,0.7801513671875,128,False
+screw,patchcore,synthetic 100%,0.9892578125,128,True
+screw,patchcore,synthetic 50%,0.9337158203125,128,True
+screw,patchcore,synthetic 25%,0.81640625,128,False
 screw,patchcore,diffusion-refined,1.0,12,True
+screw,fvae,synthetic 100%,0.9453125,128,True
+screw,fvae,synthetic 50%,0.82275390625,128,False
+screw,fvae,synthetic 25%,0.669677734375,128,False
+screw,fvae,diffusion-refined,0.96875,12,True
 screw,vae,synthetic 100%,0.586181640625,128,True
 screw,vae,synthetic 50%,0.5157470703125,128,False
 screw,vae,synthetic 25%,0.4990234375,128,False
@@ -27,14 +35,18 @@ screw,mean,synthetic 100%,0.572509765625,128,True
 screw,mean,synthetic 50%,0.5289306640625,128,False
 screw,mean,synthetic 25%,0.5140380859375,128,False
 screw,mean,diffusion-refined,0.6197916666666666,12,False
-screw,ensemble,synthetic 100%,0.988525390625,128,True
-screw,ensemble,synthetic 50%,0.91259765625,128,True
-screw,ensemble,synthetic 25%,0.7801513671875,128,False
+screw,ensemble,synthetic 100%,0.989013671875,128,True
+screw,ensemble,synthetic 50%,0.93896484375,128,True
+screw,ensemble,synthetic 25%,0.824951171875,128,False
 screw,ensemble,diffusion-refined,1.0,12,True
 carpet,patchcore,synthetic 100%,0.9277742346938774,112,True
 carpet,patchcore,synthetic 50%,0.6876594387755103,112,False
 carpet,patchcore,synthetic 25%,0.546875,112,False
 carpet,patchcore,diffusion-refined,0.8571428571428572,12,False
+carpet,fvae,synthetic 100%,0.9140625,112,True
+carpet,fvae,synthetic 50%,0.6804846938775512,112,False
+carpet,fvae,synthetic 25%,0.5522959183673468,112,False
+carpet,fvae,diffusion-refined,0.8645833333333334,12,False
 carpet,vae,synthetic 100%,0.6470025510204082,112,True
 carpet,vae,synthetic 50%,0.5141900510204082,112,False
 carpet,vae,synthetic 25%,0.4987244897959184,112,False
@@ -43,7 +55,7 @@ carpet,mean,synthetic 100%,0.8401626275510203,112,True
 carpet,mean,synthetic 50%,0.6339285714285715,112,False
 carpet,mean,synthetic 25%,0.5220025510204082,112,False
 carpet,mean,diffusion-refined,0.6116071428571428,12,False
-carpet,ensemble,synthetic 100%,0.9277742346938774,112,True
-carpet,ensemble,synthetic 50%,0.6876594387755103,112,False
-carpet,ensemble,synthetic 25%,0.546875,112,False
-carpet,ensemble,diffusion-refined,0.8571428571428572,12,False
+carpet,ensemble,synthetic 100%,0.9279336734693877,112,True
+carpet,ensemble,synthetic 50%,0.6895727040816326,112,False
+carpet,ensemble,synthetic 25%,0.5479910714285714,112,False
+carpet,ensemble,diffusion-refined,0.8645833333333333,12,False

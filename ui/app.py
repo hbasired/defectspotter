@@ -36,6 +36,8 @@ PRIVATE = {"api_visibility": "private"} if GRADIO_MAJOR >= 6 else {"api_name": F
 SHORT_METHOD = {"patchcore": "PatchCore", "fvae": "Feature VAE", "vae": "Pixel VAE", "mean": "Mean", "ensemble": "Ensemble"}
 QUEUE_COLUMNS = ["id", "time", "source", "file", "product", "detector", "score", "model_decision", "status"]
 AUDIT_COLUMNS = ["time", "id", "file", "product", "detector", "score", "model_decision", "inspector_verdict", "note"]
+POLICY_NAMES = {"synthetic_cost": "calibrated without real defects", "real_oracle_cost": "oracle (uses real defects)",
+                "good_quantile": "1% false-reject quantile", "re-qualified (current lot)": "re-qualified for the current lot"}
 LOT_TRAIN = "Training lot (qualified)"
 LOT_CURRENT = "Current lot (re-qualified)"
 
@@ -163,8 +165,9 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
                     truth_img = display.copy()
                     contours, _ = cv2.findContours((mask > 0).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                     cv2.drawContours(truth_img, contours, -1, (42, 120, 214), max(2, display.shape[0] // 160))
-        card = decision_card(result["decision"], result["score"], result["threshold"], result["band"], result["policy"],
-                             result["timing"]["total_ms"], result["health_reasons"], truth)
+        card = decision_card(result["decision"], result["score"], result["threshold"], result["band"],
+                             POLICY_NAMES.get(result["policy"], result["policy"]), result["timing"]["total_ms"],
+                             result["health_reasons"], truth)
         gallery = []
         for item in result["comparison"]:
             if "map" in item:
@@ -414,6 +417,15 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
         if req.empty or category not in set(req.category):
             return charts.empty("Run the pipeline stage 'requalify' to see this product"), charts.empty("—")
         r = req[req.category == category].iloc[0]
+        if not bool(r.lot_shift):
+            message = charts.empty(f"No lot change detected for {category} (p = {r.p_value:.2f}) — the model qualified on the "
+                                   "training lot stays deployed. Select Carpet to see a re-qualification.", 340)
+            groups = {"current-lot good parts (training-lot model)": np.asarray(dist.get("current_lot_good_base", []))}
+            pol = inspector.policy(category, "patchcore")
+            check = (charts.score_distribution(groups, pol["threshold"], pol["band"],
+                                               f"Lot-shift check for {category}: current-lot good parts stay in PASS")
+                     if len(groups[next(iter(groups))]) else charts.empty("No distributions"))
+            return message, check
         before = {k: r[f"base_{k}"] for k in ("false_reject_rate", "escape_rate", "good_check_rate")}
         after = {k: r[f"requal_{k}"] for k in ("false_reject_rate", "escape_rate", "good_check_rate")}
         bars = charts.requal_chart(before, after, f"{category}: training-lot model vs re-qualified (operating split)")
