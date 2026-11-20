@@ -43,7 +43,11 @@ def part_pose(image: np.ndarray, category: str | None = None) -> dict:
     width_lo = np.ptp(perp[proj < lo + 0.15 * span]) if np.any(proj < lo + 0.15 * span) else 0.0
     width_hi = np.ptp(perp[proj > hi - 0.15 * span]) if np.any(proj > hi - 0.15 * span) else 0.0
     angle = float(np.degrees(np.arctan2(axis[1], axis[0])) + (180.0 if width_hi > width_lo else 0.0))
-    return {"cx": float(c[0]), "cy": float(c[1]), "angle": angle,
+    # Centre the part's *extent* (not its centroid, which sits near the heavy screw head): otherwise the tip of a
+    # long screw is pushed past the canvas edge and a defect there would be cut off.
+    normal = np.array([-axis[1], axis[0]])
+    middle = c + axis * (lo + hi) / 2 + normal * (perp.min() + perp.max()) / 2
+    return {"cx": float(middle[0]), "cy": float(middle[1]), "angle": angle,
             "elongation": float(np.sqrt(max(evals[1], 1e-9) / max(evals[0], 1e-9)))}
 
 
@@ -77,8 +81,12 @@ def unalign_map(aligned_map: np.ndarray, matrix: np.ndarray, image_shape: tuple,
     """Warp a square map computed on the aligned image back to the original frame (``out_size`` x ``out_size``)."""
     h, w = image_shape[:2]
     size = aligned_map.shape[0]
-    to_map = np.diag([size / w, size / h, 1.0])
-    to_out = np.diag([out_size / w, out_size / h, 1.0])
+
+    def scale(sx: float, sy: float) -> np.ndarray:  # pixel-centre convention, as cv2.resize uses
+        return np.array([[sx, 0, 0.5 * sx - 0.5], [0, sy, 0.5 * sy - 0.5], [0, 0, 1.0]])
+
+    to_map = scale(size / w, size / h)
+    to_out = scale(out_size / w, out_size / h)
     full = np.vstack([matrix, [0, 0, 1]])
     # original(out) -> aligned(map):  to_map @ full @ inv(to_out)
     m = (to_map @ full @ np.linalg.inv(to_out))[:2]

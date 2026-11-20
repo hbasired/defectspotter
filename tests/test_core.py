@@ -139,3 +139,36 @@ def test_ewma_alarm_and_health_check():
     flags = health_check({"brightness": 40.0}, {"brightness": {"mean": 120.0, "std": 5.0}})
     assert flags[0]["status"] == "OUT OF RANGE"
     assert population_stability_index(np.arange(100), np.arange(100) + 50) > 0.25
+
+
+# ------------------------------------------------------------------ pose normalisation
+def test_pose_alignment_keeps_part_in_canvas_and_maps_back_exactly():
+    """A long synthetic 'screw' (bar + wide head) is rotated head-left without leaving the canvas, and a map point
+    warped to the aligned frame and back lands where it started."""
+    import cv2
+    from defectspotter.pose import align_image, part_pose, unalign_map
+
+    img = np.full((512, 512, 3), 200, np.uint8)
+    cv2.line(img, (40, 330), (330, 120), (40, 40, 40), 18)          # shank: diagonal, off-centre (~360 px long)
+    cv2.circle(img, (330, 120), 30, (40, 40, 40), -1)               # wide head at the upper-right end
+    pose = part_pose(img)
+    assert pose["elongation"] > 2.0
+    aligned, matrix = align_image(img)
+    dark = (aligned.mean(axis=2) < 120)
+    border = np.ones_like(dark)
+    border[3:-3, 3:-3] = False
+    assert not (dark & border).any()                                 # nothing pushed off / onto the canvas edge
+    assert dark.sum() >= 0.9 * (img.mean(axis=2) < 120).sum()       # (bilinear rotation softens the outline)
+    cols = np.nonzero(dark.any(axis=0))[0]
+    left, right = dark[:, cols[0]:cols[0] + 40].sum(), dark[:, cols[-1] - 40:cols[-1]].sum()
+    assert left > right                                              # head (wider end) on the left
+    size = 128
+    yy, xx = np.mgrid[0:size, 0:size].astype(np.float32)
+    p = np.array([200.0, 300.0, 1.0])
+    q = matrix @ p
+    centre = ((q[0] + 0.5) * size / 512 - 0.5, (q[1] + 0.5) * size / 512 - 0.5)
+    blob = np.exp(-((xx - centre[0]) ** 2 + (yy - centre[1]) ** 2) / 4.0).astype(np.float32)
+    back = unalign_map(blob, matrix, img.shape, size)
+    w = back / back.sum()
+    expected = ((p[1] + 0.5) * size / 512 - 0.5, (p[0] + 0.5) * size / 512 - 0.5)
+    assert abs((w * yy).sum() - expected[0]) < 0.05 and abs((w * xx).sum() - expected[1]) < 0.05
