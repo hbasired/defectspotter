@@ -106,9 +106,10 @@ def problem_html() -> str:
 def pipeline_html() -> str:
     flow = [
         ("Good parts only", "train/good images per product"),
-        ("Frozen CNN", "ResNet-18 layer2+3 → 384-d patch features (ONNX, not fine-tuned)"),
-        ("Memory bank + VAE", "greedy coreset of normal patches · feature-space VAE"),
-        ("Distance / error", "nearest-neighbour distance & reconstruction error → heat map"),
+        ("Frozen CNN", "ResNet-18 (ImageNet weights, not trained here) → 384-d patch features (ONNX)"),
+        ("Five detectors", "on ResNet features: PatchCore memory bank, feature-space VAE · on raw pixels: pixel VAE, "
+                           "mean image · ensemble"),
+        ("Distance / error", "nearest-neighbour distance or reconstruction error → heat map"),
         ("Calibrate", "held-out good + synthetic defects → 0–100 scale & cost-optimal threshold"),
         ("Decide", "PASS · CHECK (human) · REJECT"),
         ("Monitor", "camera health + EWMA drift alarm"),

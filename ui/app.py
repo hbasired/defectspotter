@@ -628,6 +628,7 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
                                  "use. The tabs to the right go deeper; the <b>🎬 Live demo</b> is the last tab."))
                 gr.HTML(problem_html())
                 gr.HTML(pipeline_html())
+                gr.HTML(ex.detector_map_html())
                 gr.HTML(results_html(store))
                 ops_table = ex.deployed_ops(store, inspector)
                 if not ops_table.empty and "false_reject_rate" in ops_table:
@@ -724,6 +725,7 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
                                  "classical baseline. Nothing is ever trained on defects.",
                                  "Start with the table <i>What is trained, and on what?</i> — then one card per component, "
                                  "with the exact parameters read from the shipped models."))
+                gr.HTML(ex.detector_map_html())
                 gr.HTML(ex.components_html(inspector, store))
                 gr.HTML(ex.detectors_html(store, inspector))
                 gr.HTML(ex.backbone_html(inspector))

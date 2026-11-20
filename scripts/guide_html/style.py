@@ -218,6 +218,7 @@ svg .n-human { fill: var(--d-human); stroke: var(--d-human-line); }
 svg .n-alarm { fill: var(--d-alarm); stroke: var(--d-alarm-line); }
 svg .n-store { fill: var(--d-store); stroke: var(--d-store-line); }
 svg .n-ghost { fill: transparent; stroke: var(--d-proc-line); stroke-dasharray: 5 4; }
+svg .n-best { fill: var(--pass-bg); stroke: var(--pass); stroke-width: 2.2; }
 svg .shape { stroke-width: 1.6; }
 svg .t1 { fill: var(--ink); font: 600 14px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 svg .t2 { fill: var(--ink-2); font: 12.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }

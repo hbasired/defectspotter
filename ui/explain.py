@@ -250,6 +250,41 @@ def components_html(inspector, store: ReportStore) -> str:
 What adapts to each product is the memory bank (PatchCore) and the small VAEs, both learned from good parts only.</p>""", "🧩")
 
 
+def detector_map_html() -> str:
+    """Which detector uses what: the frozen ResNet-18 feeds PatchCore and the feature-space VAE only."""
+    arr = '<div class="arr">→</div>'
+    return card("Which detector uses the ResNet? — the five detection paths", f"""
+<div class="ds-map">
+ <div class="ds-map-src"><b>📷 Part image</b><span>the same image goes to every detector</span></div>{arr}
+ <div class="ds-map-rows">
+  <div class="ds-map-row"><div class="ds-map-step deep"><b>Frozen ResNet-18</b><span>ImageNet weights, <b>not trained here</b>
+   → 384 numbers per image patch</span></div>{arr}
+   <div class="ds-map-branches">
+    <div class="ds-map-det best"><b>① PatchCore</b> — deployed<span>distance of every patch to the nearest normal patch in the
+     memory bank</span></div>
+    <div class="ds-map-det"><b>② Feature-space VAE</b> (GenAI)<span>rebuilds the ResNet feature map; what it cannot rebuild is
+     suspicious</span></div></div></div>
+  <div class="ds-map-row"><div class="ds-map-step px"><b>Raw pixels, 128 px</b><span>no ResNet</span></div>{arr}
+   <div class="ds-map-branches"><div class="ds-map-det"><b>③ Pixel VAE</b> (GenAI, v1)<span>rebuilds the image itself</span></div></div></div>
+  <div class="ds-map-row"><div class="ds-map-step px"><b>Raw pixels, aligned</b><span>OpenCV ECC alignment, no ResNet</span></div>{arr}
+   <div class="ds-map-branches"><div class="ds-map-det"><b>④ Mean-image baseline</b><span>z-score against the mean ± std of good
+    parts</span></div></div></div>
+  <div class="ds-map-row"><div class="ds-map-step mix"><b>Scores of ① and ②</b><span>combined</span></div>{arr}
+   <div class="ds-map-branches"><div class="ds-map-det"><b>⑤ Ensemble</b><span>w × PatchCore + (1 − w) × feature-space VAE</span></div></div></div>
+ </div>{arr}
+ <div class="ds-map-out"><b>0–100 score → PASS · CHECK · REJECT</b><span>every detector has its own calibrated threshold; the
+  <b>Detector</b> menu chooses which one decides</span></div>
+</div>
+<p class="ds-note"><b>Five separate paths, not one chain.</b> The ResNet is shared by ① and ② only: PatchCore compares its patch
+features with a memory of good patches, the feature-space VAE tries to rebuild them. The pixel VAE and the mean baseline never
+see the ResNet. <b>Is the ResNet trained, and is it compared with ImageNet?</b> No and no: ImageNet is not a model but the
+collection of 1.28 million everyday photos on which the ResNet-18 weights were learned — by the torchvision team, before this
+project. Here the ResNet is used <b>frozen</b>, as a fixed feature extractor. The <i>backbone study</i> compares ResNet-18 with three
+other ImageNet-pre-trained networks (MobileNetV3, EfficientNet-B0, WideResNet-50) to choose which feature extractor to use.
+What is actually trained here: the two VAEs (from scratch, on good parts only); the memory bank is <i>built</i> (no training); the
+baseline computes statistics.</p>""", "🗺️")
+
+
 # ------------------------------------------------------------------ the five detectors compared
 DETECTOR_ORDER = ("patchcore", "ensemble", "fvae", "vae", "mean")
 DETECTOR_PROFILES = {
@@ -336,6 +371,61 @@ def _ensemble_weights(inspector) -> str:
     return " / ".join(weights)
 
 
+def detector_per_product(store: ReportStore, inspector) -> list[dict]:
+    """Per product: which detector is best at ranking, at the heat map, at cost; best generative model; recommendation."""
+    metrics, ops = store.csv("metrics.csv"), store.csv("operating_metrics.csv")
+    if metrics.empty:
+        return []
+    ops = ops[ops.policy == "synthetic_cost"] if not ops.empty else ops
+    req = store.csv("requalification.csv")
+    short = {"patchcore": "PatchCore", "ensemble": "Ensemble", "fvae": "Feature-space VAE", "vae": "Pixel VAE",
+             "mean": "Mean-image baseline"}
+    name = lambda m: short.get(m, METHOD_LABELS.get(m, m))  # noqa: E731
+    rows = []
+    for cat in inspector.categories:
+        mm = metrics[metrics.category == cat].set_index("method")
+        oo = ops[ops.category == cat].set_index("method") if not ops.empty else pd.DataFrame()
+        if mm.empty:
+            continue
+
+        def winners(series, higher=True, money=False):
+            best = _best(series, higher)
+            order = [m for m in DETECTOR_ORDER if m in best]
+            value = float(series.max() if higher else series.min())
+            text = (f"{value:,.0f} USD" if value >= 10 else f"{value:.2f} USD") if money else f"{value:.3f}"
+            return " = ".join(name(m) for m in order) + f" ({text})"
+        gen = mm.loc[[m for m in ("fvae", "vae") if m in mm.index], "image_auroc"]
+        rq = req[req.category == cat] if not req.empty else req
+        lot = bool(len(rq) and bool(rq.iloc[0].deployed))
+        pc_best_rank = "patchcore" in _best(mm.image_auroc)
+        why = {True: "best ranking and lowest cost", False: "lowest cost"}[pc_best_rank]
+        if cat == "screw":
+            why += "; pose normalisation makes it robust to rotation — the VAEs are not"
+        if lot:
+            why += (f"; re-qualified for the current lot (CHECK share {pct(rq.iloc[0].base_review_rate)} → "
+                    f"{pct(rq.iloc[0].requal_review_rate)})")
+        rows.append({
+            "product": CATEGORY_INFO.get(cat, {}).get("title", cat),
+            "ranking": winners(mm.image_auroc),
+            "heat map": f"{winners(mm.pixel_auroc)} · AUPRO {winners(mm.aupro_30)}",
+            "cost": winners(oo.expected_cost_per_1000, higher=False, money=True) if not oo.empty else "—",
+            "generative": f"{name(gen.idxmax())} ({gen.max():.3f} vs {gen.min():.3f})" if len(gen) == 2 else "—",
+            "recommended": "PatchCore" + (" (re-qualified lot)" if lot else ""),
+            "why": why,
+        })
+    return rows
+
+
+def detector_per_product_html(store: ReportStore, inspector) -> str:
+    rows = detector_per_product(store, inspector)
+    if not rows:
+        return ""
+    body = [[f"<b>{esc(r['product'])}</b>", r["ranking"], r["heat map"], r["cost"], r["generative"],
+             f"<b>🏆 {esc(r['recommended'])}</b><br><span class='ds-small'>{esc(r['why'])}</span>"] for r in rows]
+    return table(body, ["product", "best ranking (image AUROC)", "best heat map (pixel AUROC · AUPRO)",
+                        "lowest cost / 1,000 parts at its own threshold", "better VAE (feature vs pixel)", "use for this product"])
+
+
 def detectors_html(store: ReportStore, inspector) -> str:
     """Models & training tab: how the five detectors differ (qualitative) + headline number + verdict."""
     stats = detector_stats(store, inspector)
@@ -343,6 +433,8 @@ def detectors_html(store: ReportStore, inspector) -> str:
         return ""
     stats = stats.set_index("method")
     weights = _ensemble_weights(inspector)
+    per_product = "; ".join(f"{esc(r['product'])} — {esc(r['recommended'])} (ranking: {r['ranking']})"
+                            for r in detector_per_product(store, inspector))
     rows = []
     for method in stats.index:
         p = DETECTOR_PROFILES[method]
@@ -358,7 +450,9 @@ evaluated on the same held-out real defects. They differ in <i>what they remembe
 measure “unusual”</i>. The full numbers are in <b>📈 Results → Model comparison</b>; the live demo shows all five on the
 same part (“All detectors on this part”).</p>
 <div style="overflow-x:auto">{table(rows, ["detector", "family", "what it learns from good parts", "how it scores a new part",
-                                         "strength", "weakness", "mean image AUROC (rank)", "verdict"])}</div>""", "🏁")
+                                         "strength", "weakness", "mean image AUROC (rank)", "verdict"])}</div>
+<p class="ds-note" style="margin-top:8px"><b>Best per product:</b> {per_product}. <b>Overall: PatchCore</b> (deployed).
+Per-product details — ranking, heat map, cost, better VAE — in 📈 Results → Model comparison.</p>""", "🏁")
 
 
 def detector_comparison_html(store: ReportStore, inspector) -> str:
@@ -426,7 +520,13 @@ Best image AUROC per product: {"; ".join(winners)}.</p>
 Operating columns: each detector at its own label-free default threshold on the operating test split, mean of the
 products, qualification-lot models{lot_note}. Cost: expected cost per 1,000 parts at 1% defects (escape 400, false reject 2,
 human check 0.30 USD). Rows are sorted by deployment preference.</p>
-<div class="ds-subcard" style="margin-top:8px">{verdict}</div>""", "🏁")
+<div class="ds-subcard" style="margin-top:8px">{verdict}</div>
+<div class="ds-card-title" style="margin-top:14px">Which detector is best for which product?</div>
+<div style="overflow-x:auto">{detector_per_product_html(store, inspector)}</div>
+<p class="ds-small" style="margin-top:6px">“=” marks a tie (within 0.0005). Heat-map ties between PatchCore and the ensemble are
+expected: for bottle the ensemble weight is 1.0 (it <i>is</i> PatchCore), for screw and carpet it is 0.9 / 0.8 PatchCore.
+<b>Overall: PatchCore</b> — best ranking and lowest cost on every product; the ensemble only edges it on the heat map by ≤ 0.002
+(a statistical tie) at ≈ 1.8× the compute; the feature-space VAE is the better generative model on every product.</p>""", "🏁")
 
 
 def backbone_html(inspector) -> str:

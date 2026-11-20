@@ -119,6 +119,21 @@ CSS = f"""
   padding: 10px 12px; font-size: .86rem; color: {INK_2}; }}
 .ds-flow .box b {{ display: block; color: {INK}; font-size: .92rem; margin-bottom: 2px; }}
 .ds-flow .arrow {{ align-self: center; color: {MUTED}; font-size: 1.3rem; }}
+.ds-map {{ display: grid; grid-template-columns: 150px 26px minmax(0, 1fr) 26px 190px; gap: 6px; align-items: center; margin: 6px 0 10px; }}
+.ds-map .arr {{ text-align: center; color: {MUTED}; font-size: 1.4rem; }}
+.ds-map span {{ display: block; font-size: .8rem; color: {INK_2}; margin-top: 2px; line-height: 1.3; }}
+.ds-map-src {{ background: #eaf2fc; border: 1.5px solid #2a78d6; border-radius: 12px; padding: 10px 12px; }}
+.ds-map-out {{ background: #f3f3f1; border: 1.5px solid #a9a89f; border-radius: 12px; padding: 10px 12px; }}
+.ds-map-rows {{ display: flex; flex-direction: column; gap: 8px; }}
+.ds-map-row {{ display: grid; grid-template-columns: minmax(0, 0.9fr) 22px minmax(0, 1.4fr); gap: 4px; align-items: center; }}
+.ds-map-step {{ border-radius: 10px; padding: 8px 10px; border: 1.5px solid #a9a89f; background: #ffffff; }}
+.ds-map-step.deep {{ background: #efedfb; border-color: #6250d6; }}
+.ds-map-step.px {{ border-style: dashed; }}
+.ds-map-step.mix {{ background: #fff6dc; border-color: #c98a00; }}
+.ds-map-branches {{ display: flex; flex-direction: column; gap: 6px; }}
+.ds-map-det {{ background: #ffffff; border: 1px solid {GRID}; border-radius: 10px; padding: 7px 10px; }}
+.ds-map-det.best {{ border: 2px solid #0ca30c; background: #eaf7ea; }}
+@media (max-width: 900px) {{ .ds-map, .ds-map-row {{ grid-template-columns: minmax(0, 1fr); }} .ds-map .arr {{ display: none; }} }}
 .ds-decision {{ border-radius: 16px; padding: 16px 18px; border: 1px solid; }}
 .ds-decision .big {{ font-size: 1.9rem; font-weight: 800; letter-spacing: .02em; }}
 .ds-decision .meta {{ font-size: .92rem; margin-top: 4px; }}

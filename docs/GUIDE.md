@@ -112,14 +112,27 @@ its first defect appears.
 
 ## 4. The pipeline at a glance
 
+Five **separate** detection paths — not one chain. Only two of them use the ResNet:
+
 ```
-good parts ──► frozen ResNet-18 (ONNX) ──► patch descriptors ──► PatchCore memory bank ──► distance map ──► score
-            └► feature-space VAE (trained on the descriptors) ──► reconstruction error map ──► score
-            └► pixel VAE (trained on images, v1 comparison) ──► reconstruction error map ──► score
-            └► aligned mean image ± std (classical baseline) ──► z-score map ──► score
-held-out good parts + synthetic defects ──► 0–100 score scale + cost-optimal PASS / CHECK / REJECT thresholds
-inspection ──► camera-health gate ──► decision ──► CHECK → human review queue + audit log ──► drift monitoring
+               ┌─► frozen ResNet-18 ──► 384-d patch ──┬─► ① PatchCore (deployed): distance to the memory bank ──┐
+               │   (ImageNet weights,    features     └─► ② feature-space VAE: feature reconstruction error ────┤
+               │    NOT trained here)                                                                          │
+part image ────┼─► raw pixels, 128 px ───────────────────► ③ pixel VAE (v1): image reconstruction error ────────┼─► 0–100 score
+               │                                                                                               │   (own threshold
+               └─► raw pixels, ECC-aligned ──────────────► ④ mean-image baseline: z-score vs mean ± std ────────┤    per detector)
+                                                           ⑤ ensemble = w·① + (1 − w)·② ─────────────────────────┘        │
+                                                                                                                           ▼
+                                                        camera-health gate ─► PASS / CHECK / REJECT ─► review queue, audit log, drift charts
 ```
+
+* **Is the ResNet trained?** No. Its weights were learned on **ImageNet** (1.28 million everyday photos) by the torchvision
+  team, before this project. Here it is a frozen feature extractor.
+* **Is the ResNet compared with ImageNet?** No — ImageNet is a photo collection, not a model. The *backbone study*
+  (Section 5.2) compares ResNet-18 with three other ImageNet-pre-trained networks to choose the feature extractor.
+* **Does the ResNet feed the VAE?** Only the **feature-space VAE** (image → ResNet → VAE rebuilds the ResNet features).
+  The **pixel VAE** rebuilds the raw image and never sees the ResNet; neither does the mean baseline.
+* The thresholds of every path come from held-out good parts + synthetic defects (Section 9).
 
 Pipeline stages (`python scripts/train.py --stages …`), in order:
 
@@ -402,6 +415,18 @@ label-free calibration, same held-out real defects:
 rejects at its label-free threshold. The ensemble ties (pixel metrics within 0.001) but runs two models; the feature-space
 VAE is far ahead of the pixel VAE (rebuilding what the backbone sees beats rebuilding pixels); the mean baseline shows why
 learned features are needed. The app shows the full table in 🧠 Models & training and 📈 Results.
+
+**Best detector per product** (“=” is a tie within 0.0005; costs at each detector's own label-free threshold):
+
+| product | best ranking (image AUROC) | best heat map (pixel AUROC · AUPRO) | lowest cost / 1,000 parts | better VAE | use |
+|---|---|---|---|---|---|
+| bottle | PatchCore = Ensemble (1.000) | PatchCore = Ensemble (0.980 · 0.945) | PatchCore = Ensemble (0.15 USD) | feature-space (0.997 vs 0.902) | **PatchCore** (the ensemble *is* PatchCore here, w = 1.0) |
+| screw | PatchCore (0.997) | PatchCore = Ensemble (0.996) · Ensemble (0.974) | PatchCore (257 USD) | feature-space (0.798 vs 0.477) | **PatchCore** — pose normalisation; the VAEs fail on rotation |
+| carpet | PatchCore (0.940) | Ensemble (0.985 · 0.932) | PatchCore (359 USD) | feature-space (0.902 vs 0.671) | **PatchCore, re-qualified lot** (CHECK 49.6% → 5.7%) |
+
+**Overall: PatchCore** — best ranking and lowest cost on every product; the ensemble's heat-map edge on screw and carpet
+(≤ 0.002) is a statistical tie that does not pay for running two models; the feature-space VAE beats the pixel VAE on
+every product.
 
 ## 10c. Real-world numbers: one production shift
 

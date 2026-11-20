@@ -12,7 +12,7 @@ from html import escape
 _IDS = itertools.count(1)
 KIND_LABELS = {"data": "data / images", "model": "model or learned component", "proc": "processing step",
                "gate": "decision / check", "human": "human", "store": "stored files", "alarm": "alarm / action",
-               "ghost": "comparison only"}
+               "ghost": "comparison only", "best": "deployed detector"}
 
 
 def _e(text) -> str:
@@ -181,7 +181,8 @@ def legend(kinds) -> str:
            "alarm": "alarm", "ghost": "proc"}
     items = []
     for k in kinds:
-        style = (f"background:var(--d-{var[k]});border-color:var(--d-{var[k]}-line)"
+        style = ("background:var(--pass-bg);border-color:var(--pass)" if k == "best" else
+                 f"background:var(--d-{var[k]});border-color:var(--d-{var[k]}-line)"
                  + (";border-style:dashed;background:transparent" if k == "ghost" else ""))
         items.append(f'<span><i style="{style}"></i>{_e(KIND_LABELS[k])}</span>')
     return '<div class="legend">' + "".join(items) + "</div>"
@@ -202,8 +203,8 @@ def system_overview(n) -> Flow:
     f.lane(10, 494, 1140, 146, "3 · Operate — after deployment")
     xs = [26, 216, 406, 596, 786, 976]
     a = [("a1", "Good parts only", ["MVTec AD training set,", "no defect images"], "data"),
-         ("a2", "Frozen ResNet-18", ["ImageNet weights;", "not fine-tuned, no head"], "model"),
-         ("a3", "Detectors", ["PatchCore memory bank,", "feature VAE, pixel VAE"], "model"),
+         ("a2", "Frozen ResNet-18", ["ImageNet weights, not", "trained here, no head"], "model"),
+         ("a3", "Five detectors", ["2 on ResNet features,", "2 on raw pixels + 1 mix"], "model"),
          ("a4", "Score held-out", ["good parts never seen", "+ synthetic defects"], "proc"),
          ("a5", "Calibrate", ["0–100 score scale,", "cost-optimal threshold"], "proc"),
          ("a6", "artifacts/", [f"{n['artifact_mb']:.0f} MB: ONNX, banks,", "calibration.json"], "store")]
@@ -213,6 +214,8 @@ def system_overview(n) -> Flow:
     for p, q in zip("a1 a2 a3 a4 a5".split(), "a2 a3 a4 a5 a6".split()):
         f.edge(p, q)
     f.edge("s1", "a4", sa="t", sb="b")
+    f.edge("a1", "a3", sa="b", sb=("b", 0.5), via=[(None, 164)], dash=True,
+           label="raw pixels: pixel VAE + mean image skip the ResNet", lxy=(296, 180, "middle"))
     b = [("b1", "Part image", ["camera, upload or API;", "any size, RGB"], "data"),
          ("b2", "Health gate", ["brightness, contrast,", "sharpness within ±4σ?"], "gate"),
          ("b3", "Backbone features", ["pose-normalised screws;", "384 numbers per patch"], "model"),
@@ -331,14 +334,14 @@ def vae_flow(n) -> Flow:
     f.lane(10, 8, 1140, 170, "Pixel VAE (v1) — rebuilds the image")
     f.lane(10, 194, 1140, 170, "Feature-space VAE (v3) — rebuilds what the backbone sees")
     xs = [26, 186, 346, 506, 666, 826, 986]
-    pix = [("v1", "Image", ["3 × 128 × 128", "values 0–1"], "data"),
+    pix = [("v1", "Image (pixels)", ["3 × 128 × 128 —", "no ResNet involved"], "data"),
            ("v2", "Encoder", ["4 × stride-2 conv", "32→64→128→128 ch"], "model"),
            ("v3", "μ, log σ²", ["128 numbers each", "(fully connected)"], "model"),
            ("v4", "Sample z", ["z = μ + σ·ε,", "ε ~ N(0, 1)"], "proc"),
            ("v5", "Decoder", ["mirror: transposed", "convs, sigmoid"], "model"),
            ("v6", "Reconstruction", ["3 × 128 × 128,", "a ‘good’ version"], "data"),
            ("v7", "Error map", ["0.5·|x − x̂| +", "0.5·(1 − SSIM)"], "gate")]
-    feat = [("f1", "Features", ["384 × 28 × 28,", "normalised"], "data"),
+    feat = [("f1", "ResNet features", ["384 × 28 × 28 from", "the frozen backbone"], "data"),
             ("f2", "Encoder", ["1×1 conv 384→256,", "2 × 3×3 stride 2"], "model"),
             ("f3", "μ, log σ²", ["32 × 7 × 7", "spatial latent"], "model"),
             ("f4", "Sample z", ["z = μ + σ·ε", "(μ at test time)"], "proc"),
@@ -466,6 +469,32 @@ def human_flow(n) -> Flow:
     return f
 
 
-ALL = {"overview": system_overview, "build": build_pipeline, "inspect": inspection_flow, "patchcore": patchcore_flow,
+def detector_map(n) -> Flow:
+    f = Flow(1160, 380, "Which detector uses what",
+             "The frozen ResNet-18 feeds PatchCore and the feature-space VAE only; the pixel VAE and the mean-image "
+             "baseline work on raw pixels; the ensemble mixes the scores of PatchCore and the feature VAE.")
+    f.node("img", 16, 150, 170, 84, "Part image", ["the same image goes", "to every detector"], "data")
+    f.node("rn", 236, 40, 236, 84, "Frozen ResNet-18", ["ImageNet weights, NOT", "trained here · 384-d / patch"], "model")
+    f.node("p1", 236, 176, 236, 64, "Raw pixels · 128 px", ["no ResNet"], "proc")
+    f.node("p2", 236, 276, 236, 64, "Raw pixels · aligned", ["OpenCV ECC, no ResNet"], "proc")
+    f.node("pc", 530, 16, 250, 64, "① PatchCore — deployed", ["distance to the memory bank"], "best")
+    f.node("fv", 530, 96, 250, 64, "② Feature-space VAE", ["rebuilds the ResNet features"], "model")
+    f.node("pv", 530, 176, 250, 64, "③ Pixel VAE (v1)", ["rebuilds the image itself"], "model")
+    f.node("mb", 530, 276, 250, 64, "④ Mean-image baseline", ["z-score vs mean ± std"], "proc")
+    f.node("out", 850, 130, 296, 124, "0–100 score", ["→ PASS · CHECK · REJECT with", "each detector's own threshold;",
+                                                    "⑤ ensemble = w·① + (1 − w)·②"], "gate")
+    f.edge("img", "rn", sb="l")
+    f.edge("img", "p1")
+    f.edge("img", "p2")
+    f.edge("rn", "pc")
+    f.edge("rn", "fv")
+    f.edge("p1", "pv")
+    f.edge("p2", "mb")
+    for src in ("pc", "fv", "pv", "mb"):
+        f.edge(src, "out")
+    return f
+
+
+ALL = {"overview": system_overview, "detectors": detector_map, "build": build_pipeline, "inspect": inspection_flow, "patchcore": patchcore_flow,
        "vae": vae_flow, "calibration": calibration_flow, "monitoring": monitoring_flow, "split": split_flow,
        "deployment": deployment_flow, "human": human_flow}

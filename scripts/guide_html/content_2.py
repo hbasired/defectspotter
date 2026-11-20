@@ -558,6 +558,12 @@ def ch_faq(c) -> str:
          "good parts; the baseline computes statistics; the calibration fits a score scale and thresholds."),
         ("Did we build all five detectors?", "Yes. All five are separate, calibrated models that can be selected in the app and the API; "
          "PatchCore is deployed because it is the best (chapter 10)."),
+        ("Does the ResNet feed the VAE?", "Only the feature-space VAE: it learns to rebuild the ResNet's feature map (image → ResNet → "
+         "VAE). The pixel VAE rebuilds the raw image and never sees the ResNet; the mean baseline doesn't either. PatchCore and the "
+         "feature-space VAE share the same frozen ResNet but are separate detectors."),
+        ("Is the ResNet compared with ImageNet?", "No. ImageNet is the photo collection the ResNet weights were learned on (by the "
+         "torchvision team, before this project). The backbone study compares ResNet-18 with three other ImageNet-pre-trained "
+         "networks to choose the feature extractor; none of them is trained here."),
         ("Were real defects used anywhere?", "Only for evaluation and for the comparison “oracle” threshold — never to train a model or "
          "set the deployed threshold."),
         ("Why PASS / CHECK / REJECT and not good / bad?", "Uncertain parts are cheaper to check than to scrap or ship; the band absorbs "

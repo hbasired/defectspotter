@@ -114,3 +114,15 @@ def test_guide_diagrams_are_valid_svg():
         ET.fromstring(flow.svg())  # well-formed XML
         for e in flow.edges:
             assert e["a"] in flow.nodes and e["b"] in flow.nodes, name
+
+
+def test_detector_per_product_and_map(inspector):
+    from ui import explain as ex
+    from ui.store import ReportStore
+
+    rows = ex.detector_per_product(ReportStore(ROOT), inspector)
+    assert [r["product"].lower() for r in rows] == [c.lower() for c in inspector.categories]
+    for r in rows:
+        assert r["recommended"].startswith("PatchCore") and "PatchCore" in r["ranking"]
+    html = ex.detector_map_html()
+    assert "not trained here" in html and "no ResNet" in html

@@ -299,7 +299,9 @@ Colab secret.
 re-qualification (carpet CHECK load ~50% → ~6%), UI rebuilt as a presentation ending in the live demo (intro boxes,
 captions, KPI tiles, confusion-matrix heat maps, model/training explainer), `docs/GUIDE.md`, `demo_images/`; real-world
 one-shift view (`defectspotter/operations.py`: parts, inspectors, escapes, USD per shift, sourced assumptions); five-detector
-comparison with verdict (Models & training + Results tabs; PatchCore best and deployed); complete HTML guide
+comparison with verdict and best detector per product (Models & training + Results tabs; PatchCore best and deployed);
+"Which detector uses the ResNet?" map (Overview + Models: only PatchCore and the feature-space VAE use the frozen ResNet-18;
+the pixel VAE and the mean baseline work on raw pixels; the ResNet is never trained); complete HTML guide
 (`scripts/build_guide.py` → `docs/DefectSpotter_Complete_Guide.html`, downloadable from the Guide tab); stale-page reload
 banner; notebook cells 12c (detector comparison), 12d (one shift) and 16b (HTML guide).
 

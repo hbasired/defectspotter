@@ -273,6 +273,18 @@ All five detectors in the app's *Detector* menu were built from good parts only 
 | Mean-image baseline | classical statistics | 0.562 | 0.778 | 1,930 USD | classical reference |
 
 Cost: expected cost per 1,000 parts at 1% defects at each detector's label-free threshold (qualification-lot models).
+
+**Best detector per product** (“=” is a tie within 0.0005; costs at each detector's own label-free threshold):
+
+| product | best ranking (image AUROC) | best heat map (pixel AUROC · AUPRO) | lowest cost / 1,000 parts | better VAE | use |
+|---|---|---|---|---|---|
+| bottle | PatchCore = Ensemble (1.000) | PatchCore = Ensemble (0.980 · 0.945) | PatchCore = Ensemble (0.15 USD) | feature-space (0.997 vs 0.902) | **PatchCore** (the ensemble *is* PatchCore here, w = 1.0) |
+| screw | PatchCore (0.997) | PatchCore = Ensemble (0.996) · Ensemble (0.974) | PatchCore (257 USD) | feature-space (0.798 vs 0.477) | **PatchCore** — pose normalisation; the VAEs fail on rotation |
+| carpet | PatchCore (0.940) | Ensemble (0.985 · 0.932) | PatchCore (359 USD) | feature-space (0.902 vs 0.671) | **PatchCore, re-qualified lot** (CHECK 49.6% → 5.7%) |
+
+**Overall: PatchCore** — best ranking and lowest cost on every product; the ensemble's heat-map edge on screw and carpet
+(≤ 0.002) is a statistical tie that does not pay for running two models; the feature-space VAE beats the pixel VAE on
+every product.
 The app shows the full table (per product, false rejects, escapes, CHECK share, speed) in 🧠 Models & training and
 📈 Results.
 

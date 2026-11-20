@@ -41,6 +41,19 @@ Not a single defect image is needed — neither to train the models nor to choos
 {svg.figure(svg.system_overview(n), "<b>The whole system in one picture.</b> Lane 1 runs once per product (offline); lane 2 "
             "runs for every part in milliseconds; lane 3 keeps the system honest after deployment. Every box is explained "
             "in chapter 3 (flows) and chapters 4–14 (details).", ("data", "model", "proc", "gate", "human", "store"))}
+{svg.figure(svg.detector_map(n), "<b>Which detector uses what.</b> Five separate paths, not one chain: the frozen ResNet-18 feeds "
+            "only PatchCore and the feature-space VAE; the pixel VAE and the mean-image baseline read raw pixels; the ensemble "
+            "mixes the scores of ① and ②. The <b>Detector</b> menu in the app chooses which path decides.",
+            ("data", "model", "best", "proc", "gate"))}
+{callout("why", "ResNet, VAE and ImageNet — how they relate",
+         "<p><b>Is the ResNet trained?</b> No. Its weights were learned on <b>ImageNet</b> (1.28 million everyday photos) by the "
+         "torchvision team, long before this project; here it is used <b>frozen</b>, as a fixed feature extractor. "
+         "<b>Is it compared with ImageNet?</b> No — ImageNet is a photo collection, not a model. The <i>backbone study</i> "
+         "(chapter 6.3) compares ResNet-18 with three other ImageNet-pre-trained networks to choose the feature extractor. "
+         "<b>Does the ResNet feed the VAE?</b> Only the <b>feature-space VAE</b> (it learns to rebuild the ResNet's feature "
+         "map). The <b>pixel VAE</b> learns to rebuild the raw image and never sees the ResNet. What is actually trained here: "
+         "the two VAEs (from scratch, good parts only); the PatchCore memory bank is <i>built</i>; the baseline computes "
+         "statistics.</p>")}
 <div class="cols">
  <div class="card"><h4>What was built</h4><ul>
   <li>Five anomaly detectors, all trained or built from good parts and calibrated the same way: <b>PatchCore</b>
@@ -212,8 +225,11 @@ in which order, and what comes out.</p>
          "only in the evaluation phase, on images that never trained or calibrated anything. That is what makes the reported "
          "numbers an honest preview of a factory that has not seen its first defect yet.</p>")}
 {sub("flow-inspect", "3.2", "Inspection flow — one part, end to end")}
-{svg.figure(svg.inspection_flow(n), f"<b>Ten steps, ≈ {lat.latency_ms_median.min():.0f}–{lat.latency_ms_median.max():.0f} ms</b> "
-            "per part on a 4-thread CPU. The dashed arrow is the camera-health override.", ("data", "model", "proc", "gate"))}
+{svg.figure(svg.inspection_flow(n), f"<b>Ten steps with the deployed detector (PatchCore), ≈ "
+            f"{lat.latency_ms_median.min():.0f}–{lat.latency_ms_median.max():.0f} ms</b> per part on a 4-thread CPU. The dashed arrow "
+            "is the camera-health override. With another detector, steps 5–6 change: the feature-space VAE rebuilds the ResNet "
+            "features instead of searching the bank; the pixel VAE and the mean baseline skip the ResNet entirely "
+            "(chapter 10).", ("data", "model", "proc", "gate"))}
 {inspect}
 {table(["product", "backbone (ms)", "nearest neighbour (ms)", "total median (ms)", "p95 (ms)", "parts per minute"],
        [[k, f"{lat.loc[k].stage_cnn_features_ms:.0f}", f"{lat.loc[k].stage_nearest_neighbour_ms:.0f}",
@@ -403,10 +419,13 @@ a fixed “feature camera”.</li></ul>
         ["input", "224 px → 28 × 28 grid, 288 px → 36 × 36 grid; ImageNet mean / std normalisation"],
         ["export", f"ONNX opset {fe['opset']}, dynamic batch and spatial size, {fe['size_mb']:.1f} MB, verified against PyTorch "
                    f"(max abs error {fe['max_abs_error_vs_torch']:.1e})"],
-        ["runtime", "ONNX Runtime on CPU — the app needs neither PyTorch nor a GPU"]])}
+        ["runtime", "ONNX Runtime on CPU — the app needs neither PyTorch nor a GPU"],
+        ["used by", "<b>PatchCore</b> (memory bank of these descriptors) and the <b>feature-space VAE</b> (learns to rebuild them) — "
+                    "the pixel VAE and the mean-image baseline work on raw pixels and never use the backbone"]])}
 {sub("bb-study", "6.3", "Why ResNet-18 — the backbone study")}
-<p>PatchCore was run with four backbones at 224 px on the three products (<code>scripts/backbone_study.py</code>,
-analysis only):</p>
+<p>All four candidates are networks pre-trained on ImageNet (the photo collection, not a model); none of them is
+re-trained. Each was plugged into PatchCore as the frozen feature extractor at 224 px on the three products
+(<code>scripts/backbone_study.py</code>, analysis only) to see which one describes industrial surfaces best per megabyte:</p>
 {table(["backbone", "mean image AUROC", "mean pixel AUROC", "feature dim", "ONNX size (MB, est.)", "ms per image"], bb_rows,
        num_cols=(1, 2, 3, 4, 5), hl_rows=[list(g.index).index("resnet18")] if "resnet18" in g.index else ())}
 {callout("why", "Why", f"<p>WideResNet-50 is slightly more accurate but its ONNX file is ≈ {g.loc['wide_resnet50_2', 'onnx']:.0f} "
@@ -521,6 +540,10 @@ def ch_vae(c) -> str:
                 for cat in d.cats if cat in g.index]
     weights = {cat: d.cal[cat]["methods"]["ensemble"].get("weight_patchcore") for cat in d.cats}
     body = f"""
+{callout("key", "Two different VAEs, two different inputs",
+         "<p>The <b>pixel VAE</b> (v1) learns to rebuild the raw image — no ResNet involved. The <b>feature-space VAE</b> (v3) "
+         "learns to rebuild the <b>output of the frozen ResNet-18</b> (the 384 × 28 × 28 feature map) — so its path is "
+         "image → ResNet → VAE. Both are trained from scratch on good parts only; the ResNet itself is never trained.</p>")}
 {sub("vae-concepts", "8.1", "Autoencoders and VAEs — the concepts")}
 <ul><li>An <b>autoencoder</b> has an <b>encoder</b> that compresses the input into a small code (the <b>latent</b>) and a
 <b>decoder</b> that rebuilds the input from it. It is trained to make the reconstruction equal to the input.</li>
@@ -635,12 +658,17 @@ def ch_compare(c) -> str:
                       cell(m, "cost_per_1000", f"{s.cost_per_1000:,.0f}"), f"{s.latency_ms:.0f}",
                       f"<b>{ex.DETECTOR_PROFILES[m]['verdict']}</b>"])
     pc, ens, fv, vae, mean = (stats.loc[m] for m in ("patchcore", "ensemble", "fvae", "vae", "mean"))
+    from types import SimpleNamespace
+    from ui.store import ReportStore
+    per_product = ex.detector_per_product(ReportStore(c.root), SimpleNamespace(categories=cats))
     body = f"""
 <p>Every entry of the app's <b>Detector</b> menu is a separate, fully built and calibrated model. Each learned <b>only from
 good parts</b>, got its own 0–100 score scale and its own label-free PASS / CHECK / REJECT thresholds, and is evaluated on
 the same held-out real defects. They differ in <i>what they remember about a good part</i> and <i>how they measure
 “unusual”</i>.</p>
 {sub("cmp-differ", "10.1", "How they differ")}
+{svg.figure(svg.detector_map(c.n), "<b>Five separate paths.</b> Only ① and ② use the frozen ResNet-18.",
+            ("data", "model", "best", "proc", "gate"))}
 {table(["detector", "family", "what it learns from good parts", "how it scores a new part", "strength", "weakness"], qual)}
 {sub("cmp-numbers", "10.2", "How well they work — and which one is better")}
 {table(["detector", *[f"AUROC {k}" for k in cats], "mean AUROC", "pixel AUROC", "AUPRO 30%", "false rejects", "escapes",
@@ -650,15 +678,25 @@ the same held-out real defects. They differ in <i>what they remember about a goo
                "threshold on the operating test split, mean of the products, qualification-lot models (PatchCore's carpet "
                "CHECK share falls from 49.6% to 5.7% after re-qualification). Cost: expected cost per 1,000 parts at 1% "
                "defects (escape 400, false reject 2, check 0.30 USD).")}
-{callout("key", "Verdict: PatchCore is the best detector and the deployed one",
+{sub("cmp-products", "10.3", "Which detector is best for which product?")}
+{table(["product", "best ranking (image AUROC)", "best heat map (pixel AUROC · AUPRO)", "lowest cost / 1,000 parts",
+        "better VAE (feature vs pixel)", "use for this product"],
+       [[f"<b>{e(r['product'])}</b>", e(r['ranking']), e(r['heat map']), e(r['cost']), e(r['generative']),
+         f"<b>🏆 {e(r['recommended'])}</b><br><span class='small'>{e(r['why'])}</span>"] for r in per_product],
+       caption="“=” marks a tie (within 0.0005). For bottle the ensemble weight is 1.0 — it is PatchCore — so they tie everywhere. "
+               "Costs: each detector at its own label-free threshold, qualification-lot models.")}
+{callout("key", "Overall verdict: PatchCore is the best detector and the deployed one",
          f"<p><b>PatchCore</b> has the best or tied-best image AUROC on every product (mean {pc.auroc_mean:.3f}), the lowest "
          f"expected cost ({pc.cost_per_1000:,.0f} USD per 1,000 parts) and no false rejects at its label-free threshold. The "
          f"<b>ensemble</b> is a statistical tie (mean {ens.auroc_mean:.3f}; pixel metrics within "
          f"{max(abs(ens.pixel_auroc - pc.pixel_auroc), abs(ens.aupro - pc.aupro)):.3f}) but runs two models "
          f"({ens.latency_ms:.0f} vs {pc.latency_ms:.0f} ms) and costs slightly more ({ens.cost_per_1000:,.0f} USD) — no "
          f"benefit. Of the generative models the <b>feature-space VAE</b> ({fv.auroc_mean:.3f}) is far ahead of the "
-         f"<b>pixel VAE</b> ({vae.auroc_mean:.3f}). The <b>mean-image baseline</b> ({mean.auroc_mean:.3f}) shows why learned "
-         "features are needed.</p>")}
+         f"<b>pixel VAE</b> ({vae.auroc_mean:.3f}) — on every product. The <b>mean-image baseline</b> ({mean.auroc_mean:.3f}) "
+         "shows why learned features are needed. <b>Per product:</b> PatchCore for bottle (tied with the ensemble, which is "
+         "PatchCore there), PatchCore for screw (pose-normalised; the VAEs fail on rotation) and PatchCore re-qualified for the "
+         "current lot for carpet. The ensemble's only edge — heat-map metrics on screw and carpet, by ≤ 0.002 — is a statistical "
+         "tie that does not pay for running two models.</p>")}
 <div class="grid2">{fig(c.shot("compare_models"), "<b>Models &amp; training tab</b> — “The five detectors”: how they differ.",
                         "detector comparison in the app", "shot")}
 {fig(c.shot("compare_results"), "<b>Results tab</b> — “Model comparison — which detector is best?”.",
