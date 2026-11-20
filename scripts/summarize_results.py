@@ -1,4 +1,4 @@
-"""Print the headline result tables (Markdown) from reports/ - used to keep README numbers exact."""
+"""Headline result tables (Markdown) from reports/; ``--write`` puts them into README.md and PROJECT_HANDOFF.md."""
 from __future__ import annotations
 
 import json
@@ -20,9 +20,31 @@ def table(frame: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
-def main() -> None:
+def recipe_table() -> str | None:
+    path = R / "hpo_patchcore.csv"
+    if not path.exists():
+        return None
+    hpo = pd.read_csv(path)
+    if "selected" not in hpo:
+        return None
+    sel = hpo[hpo.selected.astype(str).str.lower() == "true"].copy()
+    rows = pd.DataFrame({
+        "product": sel.category,
+        "input": sel.image_size.astype(int).astype(str) + " px",
+        "descriptors": sel.pool_size.map(lambda v: "3×3 average" if int(v) == 3 else "raw"),
+        "good parts in bank": sel.bank_rotations.map(lambda v: "as captured" if int(v) == 1 else f"{int(v)} orientations"),
+        "bank": sel.bank_vectors.astype(int).map("{:,}".format) + " vectors (" + sel.bank_mb.map("{:.1f}".format) + " MB)",
+        "score": sel.apply(lambda r: "max patch" if r.score_mode == "max" else f"top {100 * r.topk_fraction:.0f}% of map", axis=1),
+        "label-free objective": sel.objective.map("{:.4f}".format)})
+    return "### Per-product PatchCore recipe (chosen without real defects)\n" + table(rows)
+
+
+def build() -> str:
     metrics = pd.read_csv(R / "metrics.csv")
     out = []
+    recipe = recipe_table()
+    if recipe:
+        out.append(recipe)
     m = metrics.copy()
     m["image AUROC [95% CI]"] = m.apply(lambda r: f"{r.image_auroc:.3f} [{r.image_auroc_ci_low:.3f}–{r.image_auroc_ci_high:.3f}]", axis=1)
     m["pixel AUROC"] = m.pixel_auroc.map("{:.3f}".format)
@@ -61,7 +83,32 @@ def main() -> None:
     out.append(f"Cost model: prevalence {cost['defect_prevalence']:.0%}, escape {cost['cost_escape']:.0f}, false reject "
                f"{cost['cost_false_reject']:.0f}, CHECK {cost['cost_review']:.2f}; no inspection = "
                f"{cost['no_inspection_per_1000']:.0f}, 100% manual = {cost['manual_100pct_per_1000']:.0f} per 1,000 parts.")
-    print("\n\n".join(out))
+    return "\n\n".join(out)
+
+
+def write_block(path: Path, start: str, end: str, body: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    if start not in text or end not in text:
+        print(f"markers not found in {path.name}; skipped")
+        return
+    head, rest = text.split(start, 1)
+    _, tail = rest.split(end, 1)
+    path.write_text(f"{head}{start}\n{body}\n{end}{tail}", encoding="utf-8")
+    print(f"updated {path.name}")
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--write", action="store_true", help="write the tables into README.md and PROJECT_HANDOFF.md")
+    args = parser.parse_args()
+    body = build()
+    if args.write:
+        write_block(ROOT / "README.md", "<!-- RESULTS:START -->", "<!-- RESULTS:END -->", "## Results\n\n" + body)
+        write_block(ROOT / "PROJECT_HANDOFF.md", "<!-- HANDOFF-RESULTS:START -->", "<!-- HANDOFF-RESULTS:END -->", body)
+    else:
+        print(body)
 
 
 if __name__ == "__main__":
