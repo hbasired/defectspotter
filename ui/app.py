@@ -626,10 +626,10 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
                 hpo = store.csv("hpo_patchcore.csv")
                 with gr.Row():
                     gr.Dataframe(_recipe_table(hpo), interactive=False,
-                                 label="Per-product PatchCore recipe (selected on held-out good + synthetic defects only)")
+                                 label="Deployed PatchCore recipe per product (held-out good + synthetic defects only; cheapest recipe within 0.005 of the best objective)")
                 with gr.Row():
                     gr.Dataframe(_ablation_table(hpo), interactive=False,
-                                 label="What each design choice is worth: best label-free objective per option and product")
+                                 label="What each design choice is worth: best label-free objective per option (differences < 0.005 are noise)")
                 with gr.Accordion("Tables: backbone study · thresholds · latency · artifact sizes · hyper-parameter search", open=False):
                     gr.Dataframe(store.csv("backbone_study.csv").round(4), label="Backbone study (test split, for analysis only)")
                     gr.Dataframe(store.csv("threshold_comparison.csv").round(2), label="Synthetic vs real-defect thresholds")
@@ -816,12 +816,22 @@ RECIPE_COLUMNS = ("category", "image_size", "pool_size", "bank_rotations", "core
                   "topk_fraction", "bank_vectors", "bank_mb", "synthetic_image_auroc", "subtle_image_auroc", "objective")
 
 
+def _deployed_rows(hpo: pd.DataFrame) -> pd.DataFrame:
+    """Rows of the recipes actually deployed (parsimony rule), falling back to the best objective."""
+    if "selected" in hpo:
+        chosen = hpo[hpo.selected.astype(str).str.lower() == "true"]
+        if chosen.category.nunique() == hpo.category.nunique():
+            return chosen
+    return hpo.loc[hpo.groupby("category").objective.idxmax()]
+
+
 def _recipe_table(hpo: pd.DataFrame) -> pd.DataFrame:
-    """The configuration deployed for every product (best label-free objective)."""
+    """The configuration deployed for every product (label-free, parsimony rule)."""
     if hpo.empty or "objective" not in hpo:
         return hpo
-    best = hpo.loc[hpo.groupby("category").objective.idxmax()]
-    return best[[c for c in RECIPE_COLUMNS if c in best]].round(4).reset_index(drop=True)
+    best = _deployed_rows(hpo).copy()
+    best["best_objective_any_recipe"] = best.category.map(hpo.groupby("category").objective.max())
+    return best[[c for c in (*RECIPE_COLUMNS, "best_objective_any_recipe") if c in best]].round(4).reset_index(drop=True)
 
 
 def _ablation_table(hpo: pd.DataFrame) -> pd.DataFrame:
@@ -831,6 +841,7 @@ def _ablation_table(hpo: pd.DataFrame) -> pd.DataFrame:
                "bank_rotations": ("good parts in the bank", lambda v: "as captured" if int(v) == 1 else f"{int(v)} orientations (90° steps)")}
     if hpo.empty or "objective" not in hpo:
         return pd.DataFrame()
+    deployed = _deployed_rows(hpo).set_index("category")
     rows = []
     for option, (label, fmt) in options.items():
         if option not in hpo:
@@ -840,8 +851,8 @@ def _ablation_table(hpo: pd.DataFrame) -> pd.DataFrame:
             if len(best) < 2:
                 continue
             rows.append({"product": category, "design choice": label,
-                         "objective per option (best first)": " · ".join(f"{fmt(k)}: {v:.4f}" for k, v in best.items()),
-                         "selected": fmt(best.index[0])})
+                         "best objective per option": " · ".join(f"{fmt(k)}: {v:.4f}" for k, v in best.items()),
+                         "deployed": fmt(deployed.loc[category, option]) if category in deployed.index else "—"})
     return pd.DataFrame(rows)
 
 
