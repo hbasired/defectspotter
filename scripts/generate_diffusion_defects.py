@@ -113,11 +113,13 @@ def main() -> None:
         (out / "images").mkdir(parents=True, exist_ok=True)
         (out / "masks").mkdir(parents=True, exist_ok=True)
         procedural = pd.read_csv(Path(args.work_dir) / "synthetic" / category / "manifest.csv")
-        # balanced, seeded pick across the three procedural kinds
-        quota = max(1, args.per_category // 3 + 1)
+        # balanced, seeded pick across the three procedural kinds (round-robin: 12 -> 4 / 4 / 4)
+        quota = max(1, -(-args.per_category // procedural.synthetic_type.nunique()))
         groups = [group.sample(n=min(len(group), quota), random_state=args.seed)
                   for _, group in procedural.groupby("synthetic_type")]
-        picks = pd.concat(groups).head(args.per_category).reset_index(drop=True)
+        picks = pd.concat(groups)
+        picks = picks.assign(_turn=picks.groupby("synthetic_type").cumcount()).sort_values(["_turn", "synthetic_type"])
+        picks = picks.drop(columns="_turn").head(args.per_category).reset_index(drop=True)
         rows = []
         for k, row in picks.iterrows():
             kind = row.synthetic_type
@@ -145,9 +147,10 @@ def main() -> None:
                          "mask_path": str(out / "masks" / f"{stem}_mask.png"), "synthetic_type": f"diffusion_{kind}",
                          "prompt": PROMPTS[category][kind], "mask_area_pct": float(100 * context.mean()),
                          "mean_change_in_mask": round(change, 1), "seconds": round(time.time() - started, 1)})
-            if k < 4:
+            shown = sum(1 for r in rows[:-1] if r["synthetic_type"] == f"diffusion_{kind}") if rows else 0
+            if shown < 2:  # gallery: two examples of every kind
                 Image.fromarray(cv2.resize(result, (320, 320), interpolation=cv2.INTER_AREA)).save(
-                    gallery / f"{category}_diffusion_{kind}_{k}.jpg", quality=92)
+                    gallery / f"{category}_diffusion_{kind}_{shown}.jpg", quality=92)
             print(f"{category} {k + 1}/{len(picks)} {kind}: {rows[-1]['seconds']}s, mean change in mask {change:.1f}", flush=True)
         pd.DataFrame(rows).to_csv(out / "manifest.csv", index=False)
     manifests = sorted((Path(args.work_dir) / "diffusion").glob("*/manifest.csv"))  # every product generated so far

@@ -25,7 +25,13 @@ SYNTHETIC_KINDS = ("cutpaste", "scratch", "stain")
 
 
 def estimate_foreground(image: np.ndarray, category: str | None = None) -> np.ndarray:
-    """Rough part mask so object defects land on the part, not the background."""
+    """Part mask so object defects land on the part, not on the background.
+
+    Colour distance (CIELAB) to the median border colour, thresholded with Otsu's method and cleaned
+    morphologically; specks smaller than 10% of the largest component are dropped. (The first version
+    thresholded at a fixed percentile, which forced >= 45% of every image to be "foreground": a screw
+    covers ~13% of the frame, so most of its synthetic defects landed on the empty tray.)
+    """
     h, w = image.shape[:2]
     if category in TEXTURE_CATEGORIES:
         return np.ones((h, w), dtype=np.uint8)
@@ -33,12 +39,18 @@ def estimate_foreground(image: np.ndarray, category: str | None = None) -> np.nd
     b = max(2, h // 30)
     border = np.concatenate([lab[:b].reshape(-1, 3), lab[-b:].reshape(-1, 3),
                              lab[:, :b].reshape(-1, 3), lab[:, -b:].reshape(-1, 3)])
-    distance = np.linalg.norm(lab - np.median(border, axis=0)[None, None, :], axis=2)
-    mask = (distance > max(8.0, float(np.percentile(distance, 55)))).astype(np.uint8)
+    distance = cv2.GaussianBlur(np.linalg.norm(lab - np.median(border, axis=0)[None, None, :], axis=2), (0, 0), 2)
+    peak = max(float(distance.max()), 1e-6)
+    level, _ = cv2.threshold((distance / peak * 255).astype(np.uint8), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    mask = (distance > max(12.0, level / 255 * peak)).astype(np.uint8)
     kernel = np.ones((max(3, h // 80) | 1, max(3, w // 80) | 1), np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
-    return mask if mask.mean() >= 0.08 else np.ones((h, w), dtype=np.uint8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    if n > 1:
+        areas = stats[1:, cv2.CC_STAT_AREA]
+        mask = np.isin(labels, 1 + np.flatnonzero(areas >= 0.1 * areas.max())).astype(np.uint8)
+    return mask if mask.mean() >= 0.01 else np.ones((h, w), dtype=np.uint8)
 
 
 def _soft(mask: np.ndarray, radius: int) -> np.ndarray:
