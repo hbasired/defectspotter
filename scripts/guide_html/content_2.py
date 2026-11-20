@@ -329,6 +329,9 @@ def ch_app(c) -> str:
          "sizes, acquisition statistics and the synthetic defects that replace real ones."),
         ("models", "🧠 Models & training", "What is trained and on what (the backbone is frozen, no head), the five detectors and how "
          "they differ, the backbone study, PatchCore's per-product recipe and search, VAE training curves, baseline and calibration."),
+        ("detector_map", "🧠 Models & training — which detector uses the ResNet", "The five detection paths at a glance (also on "
+         "the Overview): only PatchCore and the feature-space VAE use the frozen ResNet-18; the pixel VAE and the mean baseline "
+         "read raw pixels; the ResNet is never trained."),
         ("recipe", "🧠 Models & training — recipe", "The deployed PatchCore recipe per product and what each design choice bought "
          "(best label-free objective per option)."),
         ("results", "📈 Results", "Model comparison (which detector is best), metric definitions, confusion matrices, AUROC bars with "
