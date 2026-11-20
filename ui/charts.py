@@ -11,6 +11,7 @@ from defectspotter.viz import HEAT_COLORSCALE
 from .theme import (AXIS, CATEGORY_COLORS, CLASS_COLORS, FONT, GRID, INK, INK_2, METHOD_COLORS, MUTED, SERIES,
                     STATUS, STATUS_BG, SURFACE)
 
+ALL_METHODS = ("patchcore", "fvae", "vae", "mean", "ensemble")
 BLUE_RAMP = [[0.0, "#f4f8fe"], [0.25, "#b7d3f6"], [0.5, "#6da7ec"], [0.75, "#2a78d6"], [1.0, "#104281"]]
 
 
@@ -155,7 +156,7 @@ def metric_bars(metrics: pd.DataFrame, metric: str, label: str) -> go.Figure:
     if metrics.empty or metric not in metrics:
         return empty("No evaluation results yet")
     fig = go.Figure()
-    for method in ("patchcore", "vae", "mean", "ensemble"):
+    for method in ALL_METHODS:
         part = metrics[metrics.method == method]
         if part.empty:
             continue
@@ -178,7 +179,7 @@ def roc_chart(roc: dict, category: str) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines", line={"color": AXIS, "width": 1},
                              name="random guess", hoverinfo="skip"))
-    for method in ("patchcore", "vae", "mean", "ensemble"):
+    for method in ALL_METHODS:
         if method in curves and curves[method]["fpr"]:
             fig.add_trace(go.Scatter(x=curves[method]["fpr"], y=curves[method]["tpr"], mode="lines",
                                      name=METHOD_LABELS[method], line={"color": METHOD_COLORS[method], "width": 2},
@@ -211,17 +212,18 @@ def method_scatter(scores: dict, category: str) -> go.Figure:
     if not data:
         return empty("No scores")
     labels = np.asarray(data["test_labels"])
+    partner = "fvae" if "fvae" in data["methods"] else "vae"
     p = np.asarray(data["methods"]["patchcore"]["test"])
-    v = np.asarray(data["methods"]["vae"]["test"])
+    v = np.asarray(data["methods"][partner]["test"])
     types = np.asarray(data["test_defect_types"])
     fig = go.Figure()
     for value, name, color in ((0, "good part", CLASS_COLORS["good"]), (1, "defective part", CLASS_COLORS["defect"])):
         m = labels == value
         fig.add_trace(go.Scatter(x=p[m], y=v[m], mode="markers", name=name, text=types[m],
                                  marker={"size": 9, "color": color, "line": {"color": "#ffffff", "width": 1.5}, "opacity": 0.85},
-                                 hovertemplate="%{text}<br>PatchCore %{x:.0f} · VAE %{y:.0f}<extra></extra>"))
-    fig.update_xaxes(title="PatchCore score")
-    fig.update_yaxes(title="VAE score")
+                                 hovertemplate="%{text}<br>PatchCore %{x:.0f} · " + METHOD_LABELS[partner] + " %{y:.0f}<extra></extra>"))
+    fig.update_xaxes(title="PatchCore score (memory bank)")
+    fig.update_yaxes(title=f"{METHOD_LABELS[partner]} score (reconstruction)")
     return style(fig, f"Feature memory vs reconstruction · {category} test parts", 380)
 
 
@@ -229,7 +231,7 @@ def latency_bars(latency: pd.DataFrame) -> go.Figure:
     if latency.empty:
         return empty("No latency measurements")
     fig = go.Figure()
-    for method in ("patchcore", "vae", "mean", "ensemble"):
+    for method in ALL_METHODS:
         part = latency[latency.method == method]
         if part.empty:
             continue
@@ -467,7 +469,8 @@ def batch_strip(frame: pd.DataFrame, threshold: float, band: float) -> go.Figure
     return style(fig, "Batch scores against the decision zones", 330)
 
 
-def vae_history_chart(history: pd.DataFrame) -> go.Figure:
+def vae_history_chart(history: pd.DataFrame, title: str = "Pixel VAE training on good parts only",
+                      loss_label: str = "validation loss (L1 + SSIM)") -> go.Figure:
     if history.empty:
         return empty("No VAE training history")
     fig = go.Figure()
@@ -476,8 +479,8 @@ def vae_history_chart(history: pd.DataFrame) -> go.Figure:
         fig.add_trace(go.Scatter(x=part.epoch, y=part.val_loss, mode="lines", name=f"{category} validation",
                                  line={"color": CATEGORY_COLORS.get(category, SERIES[0]), "width": 2}))
     fig.update_xaxes(title="epoch")
-    fig.update_yaxes(title="validation loss (L1 + SSIM)")
-    return style(fig, "VAE training on good parts only", 320)
+    fig.update_yaxes(title=loss_label)
+    return style(fig, title, 320)
 
 
 def cost_comparison(costs: dict, ours: float) -> go.Figure:
@@ -496,7 +499,7 @@ def accuracy_latency(metrics: pd.DataFrame, latency: pd.DataFrame) -> go.Figure:
         return empty("No latency/accuracy data")
     frame = metrics.merge(latency, on=["category", "method"])
     fig = go.Figure()
-    for method in ("patchcore", "vae", "mean", "ensemble"):
+    for method in ALL_METHODS:
         part = frame[frame.method == method]
         if part.empty:
             continue
@@ -550,3 +553,68 @@ def psi_chart(stream: pd.DataFrame, category: str, reference: np.ndarray, window
     fig.update_xaxes(title="part number")
     fig.update_yaxes(title="population stability index", rangemode="tozero")
     return style(fig, "Score-distribution shift (PSI): < 0.1 stable · 0.1–0.25 warn · > 0.25 alert", 300)
+
+
+# ------------------------------------------------------------- v3 additions
+DECISION_ORDER = ("PASS", "CHECK", "REJECT")
+
+
+def confusion_counts(scores, labels, threshold: float, band: float) -> pd.DataFrame:
+    """Rows = truth (good part / defective part), columns = PASS / CHECK / REJECT counts."""
+    scores = np.asarray(scores, np.float64)
+    labels = np.asarray(labels).astype(int)
+    lo, hi = threshold - band, threshold + band
+    decision = np.where(scores < lo, "PASS", np.where(scores < hi, "CHECK", "REJECT"))
+    rows = []
+    for truth, value in (("good part", 0), ("defective part", 1)):
+        rows.append({"truth": truth, **{d: int(np.sum((labels == value) & (decision == d))) for d in DECISION_ORDER}})
+    return pd.DataFrame(rows).set_index("truth")
+
+
+def confusion_heatmap(counts: pd.DataFrame, title: str, height: int = 300) -> go.Figure:
+    """3-way confusion matrix as a heat map: cell colour = share of the row, text = count and row %."""
+    if counts is None or counts.empty:
+        return empty("No decisions to show", height)
+    values = counts[list(DECISION_ORDER)].to_numpy(dtype=float)
+    share = values / np.maximum(values.sum(axis=1, keepdims=True), 1)
+    # Correct cells: good -> PASS, defective -> REJECT; CHECK is the human-review buffer.
+    text = [[f"{int(values[r, c])}<br>{100 * share[r, c]:.0f}%" for c in range(3)] for r in range(values.shape[0])]
+    fig = go.Figure(go.Heatmap(
+        z=100 * share, x=[f"{STATUS_ICON_TXT[d]} {d}" for d in DECISION_ORDER], y=list(counts.index),
+        colorscale=BLUE_RAMP, zmin=0, zmax=100, text=text, texttemplate="%{text}", textfont={"size": 14},
+        colorbar={"title": {"text": "% of row"}, "thickness": 12},
+        hovertemplate="%{y} → %{x}: %{text}<extra></extra>"))
+    fig.update_xaxes(title="decision taken by DefectSpotter", side="bottom")
+    fig.update_yaxes(title="ground truth", autorange="reversed")
+    return style(fig, title, height, legend=False)
+
+
+STATUS_ICON_TXT = {"PASS": "✓", "CHECK": "⚠", "REJECT": "✕"}
+
+
+def auroc_heatmap(metrics: pd.DataFrame, metric: str = "image_auroc", title: str = "Image AUROC · product × detector") -> go.Figure:
+    if metrics.empty or metric not in metrics:
+        return empty("No metrics")
+    pivot = metrics.pivot(index="category", columns="method", values=metric)
+    order = [m for m in ("patchcore", "fvae", "vae", "mean", "ensemble") if m in pivot.columns]
+    pivot = pivot[order]
+    fig = go.Figure(go.Heatmap(
+        z=pivot.values, x=[METHOD_LABELS.get(m, m) for m in pivot.columns], y=list(pivot.index),
+        colorscale=BLUE_RAMP, zmin=0.5, zmax=1.0, text=np.round(pivot.values, 3), texttemplate="%{text}",
+        textfont={"size": 13}, colorbar={"title": {"text": metric.replace("_", " ")}, "thickness": 12},
+        hovertemplate="%{y} · %{x}: %{z:.3f}<extra></extra>"))
+    fig.update_xaxes(tickangle=0)
+    return style(fig, title, 300, legend=False)
+
+
+def requal_chart(before: dict, after: dict, title: str) -> go.Figure:
+    """Grouped bars: false rejects / escapes / CHECK load before vs after lot re-qualification (operating split)."""
+    names = ["false rejects", "escapes", "good parts sent to CHECK"]
+    keys = ["false_reject_rate", "escape_rate", "good_check_rate"]
+    fig = go.Figure()
+    for label, values, colour in (("qualified on the training lot", before, SERIES[1]),
+                                  ("re-qualified on the current lot", after, SERIES[0])):
+        fig.add_bar(name=label, x=names, y=[100 * values.get(k, np.nan) for k in keys], marker_color=colour,
+                    text=[f"{100 * values.get(k, np.nan):.0f}%" for k in keys], textposition="outside")
+    fig.update_yaxes(title="% of parts (operating split)", rangemode="tozero")
+    return style(fig, title, 340)

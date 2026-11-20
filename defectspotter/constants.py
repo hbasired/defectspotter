@@ -36,7 +36,8 @@ DECISION_COLORS = {"PASS": "#16a34a", "CHECK": "#d97706", "REJECT": "#dc2626"}
 
 METHOD_LABELS = {
     "patchcore": "PatchCore (CNN memory bank)",
-    "vae": "Convolutional VAE",
+    "fvae": "Feature-space VAE (GenAI)",
+    "vae": "Pixel VAE (GenAI, v1)",
     "mean": "Aligned mean-image baseline",
     "ensemble": "PatchCore + VAE ensemble",
 }

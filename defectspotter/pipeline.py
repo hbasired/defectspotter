@@ -36,9 +36,12 @@ from .patchcore import (CoresetLadder, MemoryBank, PatchCoreConfig, build_memory
                         score_grid,
                         score_grids, scores_from_distances)
 from .synthetic import generate_synthetic_set
+from .fvae import FeatureVAEConfig, score_error_map
+from .pose import align_image, align_mask, align_matrix, is_elongated, unalign_map
 from .vae import VAEConfig, score_reconstruction
 
-METHODS = ("patchcore", "vae", "mean", "ensemble")
+METHODS = ("patchcore", "fvae", "vae", "mean", "ensemble")
+BASE_METHODS = ("patchcore", "fvae", "vae", "mean")  # detectors with their own model
 MAP = 224  # common resolution for all evaluation maps
 SEVERITY_LEVELS = (0.25, 0.5)  # reduced-strength replays of every synthetic defect (detection-limit set)
 
@@ -73,8 +76,9 @@ class PipelineConfig:
     seed: int = 42
     device: str = "cpu"
     costs: CostModel = field(default_factory=CostModel)
-    stages: tuple = ("index", "eda", "synthetic", "patchcore", "vae", "mean", "severity", "diffusion", "calibrate", "evaluate",
-                     "latency", "drift", "few_shot", "examples", "summary")
+    fvae_epochs: int = 60
+    stages: tuple = ("index", "eda", "synthetic", "patchcore", "vae", "fvae", "mean", "severity", "diffusion", "calibrate",
+                     "evaluate", "requalify", "latency", "drift", "few_shot", "examples", "summary")
 
     @property
     def artifacts(self) -> Path:
@@ -276,7 +280,16 @@ class Pipeline:
         defect = read_rgb(defect).astype(np.float32)
         return ((1 - level) * source + level * defect).clip(0, 255).astype(np.uint8)
 
-    def _feature_items(self, category: str, name: str, rotations: int = 1):
+    def _feature_items(self, category: str, name: str, rotations: int = 1, align: bool = False):
+        items, augment = self._feature_items_raw(category, name, rotations)
+        if not align:
+            return items, augment
+        if rotations > 1:
+            raise ValueError("pose alignment and rotation augmentation are mutually exclusive")
+        load = augment or (lambda item: [read_rgb(item)])
+        return items, (lambda item: [align_image(view, category)[0] for view in load(item)])  # noqa: E731
+
+    def _feature_items_raw(self, category: str, name: str, rotations: int = 1):
         augment = None
         if name == "train":
             items = [self.abs(p) for p in self.paths(category, role="model_train_good").image_path]
@@ -296,23 +309,50 @@ class Pipeline:
         return items, augment
 
     def _feature_set(self, category: str, name: str, image_size: int | None = None,
-                     rotations: int = 1) -> dict[int, np.ndarray]:
+                     rotations: int = 1, align: bool = False) -> dict[int, np.ndarray]:
         """Cached CNN patch features {pool_size: (N,h,w,C) float16} for one image set at one resolution."""
         from .features import EXPORT_POOLS, extract_features
 
         image_size = int(image_size or self.cfg.image_size)
-        tag = f"{name}_rot{rotations}" if rotations > 1 else name
+        tag = (f"{name}_rot{rotations}" if rotations > 1 else name) + ("_aligned" if align else "")
         cache = self.cfg.work / "features" / f"{category}_{self.cfg.backbone}_{image_size}_{tag}.npz"
         if cache.exists():
             with np.load(cache) as data:
                 return {int(k[1:]): data[k] for k in data.files}
-        items, augment = self._feature_items(category, name, rotations)
+        items, augment = self._feature_items(category, name, rotations, align)
         self.log(f"  features {category}/{tag} @{image_size}px: {len(items)} images")
         arrays = extract_features(self.extractor, items, image_size, device=self.cfg.device, pools=EXPORT_POOLS,
                                   augment=augment)
         cache.parent.mkdir(parents=True, exist_ok=True)
         np.savez(cache, **{f"p{p}": a for p, a in arrays.items()})
         return arrays
+
+    def _elongated(self, category: str) -> bool:
+        key = f"_elongated_{category}"
+        if not hasattr(self, key):
+            sample = [read_rgb(self.abs(p)) for p in self.paths(category, role="model_train_good").image_path[:12]]
+            setattr(self, key, CATEGORY_INFO.get(category, {}).get("kind") == "object" and is_elongated(sample, category))
+        return getattr(self, key)
+
+    def _align_grid(self, category: str) -> tuple:
+        return (False, True) if self._elongated(category) else (False,)
+
+    def _pose_matrices(self, category: str, name: str) -> list:
+        """Per-image (original->aligned affine, image shape) for an image set (same order as ``_feature_items``)."""
+        cache = getattr(self, "_pose_cache", {})
+        self._pose_cache = cache
+        if (category, name) not in cache:
+            items, augment = self._feature_items_raw(category, name)
+            out = []
+            for item in items:
+                view = augment(item)[0] if augment else read_rgb(item)
+                out.append((align_matrix(view, category), view.shape))
+            cache[(category, name)] = out
+        return cache[(category, name)]
+
+    def _unalign_maps(self, category: str, name: str, maps: np.ndarray) -> np.ndarray:
+        return np.stack([unalign_map(m, mat, shape, MAP)
+                         for m, (mat, shape) in zip(maps, self._pose_matrices(category, name))]).astype(np.float32)
 
     def _rotation_grid(self, category: str) -> tuple:
         return self.cfg.object_rotation_grid if CATEGORY_INFO.get(category, {}).get("kind") == "object" else (1,)
@@ -331,22 +371,32 @@ class Pipeline:
             scoring += [("topk", f) for f in self.cfg.topk_grid]
         for category in self.cfg.categories:
             # Resumable per product: a finished search with the same search space is not repeated.
-            signature = json.dumps({"backbone": self.cfg.backbone, "sizes": list(self.cfg.size_grid),
+            base_space = {"backbone": self.cfg.backbone, "sizes": list(self.cfg.size_grid),
                                     "pools": list(self.cfg.pool_grid), "rotations": list(self._rotation_grid(category)),
                                     "coreset": list(self.cfg.coreset_grid), "blur": list(self.cfg.blur_grid),
                                     "scoring": [list(x) for x in scoring], "hpo_severity": self.cfg.hpo_severity,
-                                    "max_bank_mb": self.cfg.max_bank_mb, "seed": self.cfg.seed}, sort_keys=True)
+                          "max_bank_mb": self.cfg.max_bank_mb, "seed": self.cfg.seed}
+            signature = json.dumps({**base_space, **({"align": [False, True]} if self._elongated(category) else {})},
+                                   sort_keys=True)
+            unaligned_signature = json.dumps(base_space, sort_keys=True)
             done = self.cfg.work / "scores" / f"patchcore_{category}_search.json"
             previous = load_json(done, {}) if done.exists() else {}
             if previous.get("signature") == signature:
                 rows = previous["rows"]
                 self.log(f"  {category}: search already finished with this search space - reusing it")
+            elif previous.get("signature") == unaligned_signature and self._elongated(category):
+                # the unaligned part of the space was searched before (identical computation): add aligned only
+                self.log(f"  {category}: reusing the unaligned search, adding pose-normalised configurations")
+                rows = [{**r, "align": False} for r in previous["rows"]] + self._patchcore_search(category, scoring, (True,))
+                previous = {"signature": signature, "rows": rows}
+                save_json(previous, done)
             else:
                 rows = self._patchcore_search(category, scoring)
                 previous = {"signature": signature, "rows": rows}
                 save_json(previous, done)
             config = self._select_patchcore(rows)
             for row in rows:
+                row.setdefault("align", False)
                 row["selected"] = all(row[k] == v or (k == "topk_fraction" and row["score_mode"] == "max")
                                       for k, v in self._row_key(config).items())
             hpo_rows.extend(rows)
@@ -369,7 +419,7 @@ class Pipeline:
     def _row_key(config: PatchCoreConfig) -> dict:
         return {"image_size": config.image_size, "pool_size": config.pool_size, "bank_rotations": config.bank_rotations,
                 "coreset_ratio": config.coreset_ratio, "blur_sigma": config.blur_sigma, "score_mode": config.score_mode,
-                "topk_fraction": config.topk_fraction}
+                "topk_fraction": config.topk_fraction, "align": config.align}
 
     def _select_patchcore(self, rows: list[dict]) -> PatchCoreConfig:
         """Parsimony rule: among configurations within PARSIMONY_TOLERANCE of the best label-free objective,
@@ -380,6 +430,7 @@ class Pipeline:
         next cheaper recipe and +0.03 over v1's) are larger.
         """
         frame = pd.DataFrame(rows)
+        frame["align"] = frame["align"].fillna(False).astype(bool) if "align" in frame else False
         near = frame[frame.objective >= frame.objective.max() - self.PARSIMONY_TOLERANCE].copy()
         near["nn_cost"] = (near.image_size / 8.0) ** 2 * near.bank_vectors
         choice = near.sort_values(["nn_cost", "objective"], ascending=[True, False]).iloc[0]
@@ -389,16 +440,17 @@ class Pipeline:
                                  score_mode=str(choice.score_mode),
                                  topk_fraction=float(choice.topk_fraction) if choice.score_mode == "topk" else 0.01,
                                  max_bank_mb=self.cfg.max_bank_mb, pool_size=int(choice.pool_size),
-                                 bank_rotations=int(choice.bank_rotations))
+                                 bank_rotations=int(choice.bank_rotations), align=bool(choice.align))
         self.log(f"  best objective {best.objective:.4f} ({int(best.image_size)}px pool={int(best.pool_size)} "
-                 f"rot={int(best.bank_rotations)} coreset={best.coreset_ratio}); deployed (parsimony, objective "
+                 f"rot={int(best.bank_rotations)} align={bool(best.align)} coreset={best.coreset_ratio}); deployed (parsimony, objective "
                  f"{choice.objective:.4f}, {int(choice.bank_vectors)} bank vectors): {config}")
         return config
 
     def _build_patchcore(self, category: str, config: PatchCoreConfig) -> None:
         """Build the deployed bank for the selected recipe and score every evaluation set with it."""
         _, sev_levels = self._severity_items(category)
-        train = self._feature_set(category, "train", config.image_size, config.bank_rotations)[config.pool_size]
+        train = self._feature_set(category, "train", config.image_size, config.bank_rotations,
+                                  config.align)[config.pool_size]
         bank_vectors = CoresetLadder(train, config.coreset_ratio, self.cfg.max_bank_mb, seed=self.cfg.seed).bank(
             config.coreset_ratio)
         folder = self.cfg.artifacts / category
@@ -407,34 +459,41 @@ class Pipeline:
         bank = MemoryBank(bank_vectors)
         payload = {"config": config.to_dict()}
         for name in ("cal", "syn", "test", "sev"):
-            feats = self._feature_set(category, name, config.image_size)[config.pool_size]
+            feats = self._feature_set(category, name, config.image_size, align=config.align)[config.pool_size]
             scores, maps = scores_from_distances(patch_distances(feats, bank), config, MAP)
             payload[f"{name}_scores"] = scores
             if name != "sev":
+                if config.align:  # heat maps back to the original image frame
+                    maps = self._unalign_maps(category, name, maps)
                 payload[f"{name}_maps"] = maps.astype(np.float16)
         payload["sev_levels"] = sev_levels
-        train1 = self._feature_set(category, "train", config.image_size)[config.pool_size][:24]
+        train1 = self._feature_set(category, "train", config.image_size, align=config.align)[config.pool_size][:24]
         payload["train_insample_scores"] = scores_from_distances(patch_distances(train1, bank), config)[0]
         self._save_scores("patchcore", category, payload)
         self.log(f"  {category}: deployed bank {len(bank_vectors)} vectors ({bank_vectors.nbytes / 1024 ** 2:.1f} MB)")
 
-    def _patchcore_search(self, category: str, scoring: list) -> list[dict]:
+    def _patchcore_search(self, category: str, scoring: list, aligns: tuple | None = None) -> list[dict]:
         hpo_rows: list[dict] = []
         syn_masks = [read_mask(p, MAP) for p in self.synthetic(category).mask_path]
         _, sev_levels = self._severity_items(category)
         subtle = np.isclose(sev_levels, self.cfg.hpo_severity)
         best = None
-        for size in self.cfg.size_grid:
-            cal = self._feature_set(category, "cal", size)
-            syn = self._feature_set(category, "syn", size)
-            sev = self._feature_set(category, "sev", size)
-            for rotations in self._rotation_grid(category):
-                train = self._feature_set(category, "train", size, rotations)
+        for size, align in [(sz, al) for sz in self.cfg.size_grid for al in (aligns or self._align_grid(category))]:
+            cal = self._feature_set(category, "cal", size, align=align)
+            syn = self._feature_set(category, "syn", size, align=align)
+            sev = self._feature_set(category, "sev", size, align=align)
+            if align:  # pixel AUROC in the aligned frame: warp the synthetic masks there
+                masks = [align_mask(read_mask(p), mat, MAP)
+                         for p, (mat, _) in zip(self.synthetic(category).mask_path, self._pose_matrices(category, "syn"))]
+            else:
+                masks = syn_masks
+            for rotations in (self._rotation_grid(category) if not align else (1,)):
+                train = self._feature_set(category, "train", size, rotations, align)
                 for pool in self.cfg.pool_grid:
                     t0 = time.time()
                     ladder = CoresetLadder(train[pool], max(self.cfg.coreset_grid), self.cfg.max_bank_mb,
                                            seed=self.cfg.seed)
-                    self.log(f"  {category} @{size}px pool={pool} rot={rotations}: greedy coreset of "
+                    self.log(f"  {category} @{size}px align={align} pool={pool} rot={rotations}: greedy coreset of "
                              f"{len(ladder.order)} from {len(ladder.flat)} candidates / {ladder.n_total} patches "
                              f"({time.time() - t0:.0f}s)")
                     for ratio in self.cfg.coreset_grid:
@@ -450,7 +509,8 @@ class Pipeline:
                                 config = PatchCoreConfig(backbone=self.cfg.backbone, image_size=int(size),
                                                          coreset_ratio=ratio, blur_sigma=blur, score_mode=mode,
                                                          topk_fraction=topk, max_bank_mb=self.cfg.max_bank_mb,
-                                                         pool_size=int(pool), bank_rotations=int(rotations))
+                                                         pool_size=int(pool), bank_rotations=int(rotations),
+                                                         align=bool(align))
                                 good_s, good_m = scores_from_distances(d_cal, config, MAP)
                                 syn_s, syn_m = scores_from_distances(d_syn, config, MAP)
                                 sev_s, _ = scores_from_distances(d_sev, config)
@@ -463,14 +523,15 @@ class Pipeline:
                                 tpr_at_1pct = float(np.mean(defects > np.quantile(good_s, 0.99)))
                                 if blur not in pixel_cache:  # maps do not depend on the image-score mode
                                     pixel_cache[blur] = pixel_auroc(
-                                        [*good_m, *syn_m], [np.zeros((MAP, MAP), np.uint8)] * len(good_m) + syn_masks)
+                                        [*good_m, *syn_m], [np.zeros((MAP, MAP), np.uint8)] * len(good_m) + masks)
                                 pix_auc = pixel_cache[blur]
                                 bank_mb = len(bank) * bank.bank.shape[1] * 2 / 1024 ** 2
                                 objective = (0.4 * image_auc + 0.3 * tpr_at_1pct + 0.3 * pix_auc
                                              - 1e-4 * np.log1p(bank_mb) - 1e-4 * (size / 224 - 1))
                                 hpo_rows.append({
                                     "category": category, "image_size": int(size), "pool_size": int(pool),
-                                    "bank_rotations": int(rotations), "coreset_ratio": ratio, "blur_sigma": blur,
+                                    "bank_rotations": int(rotations), "align": bool(align),
+                                    "coreset_ratio": ratio, "blur_sigma": blur,
                                     "score_mode": mode, "topk_fraction": topk if mode == "topk" else None,
                                     "bank_vectors": len(bank), "bank_mb": bank_mb,
                                     "synthetic_image_auroc": safe_auroc(
@@ -481,7 +542,7 @@ class Pipeline:
                                     "synthetic_pixel_auroc": pix_auc, "objective": objective})
                                 if best is None or objective > best[0]:
                                     best = (objective, config, bank_vectors)
-                        self.log(f"  {category} @{size}px pool={pool} rot={rotations} coreset={ratio}: "
+                        self.log(f"  {category} @{size}px align={align} pool={pool} rot={rotations} coreset={ratio}: "
                                  f"bank={len(bank)} best objective so far={best[0]:.4f} ({time.time() - t0:.0f}s)")
                     del ladder
         return hpo_rows
@@ -559,6 +620,60 @@ class Pipeline:
             save_json({"signature": signature, "history": [{"category": category, **r} for r in config.history]}, done)
         pd.DataFrame(rows).to_csv(self.cfg.reports / "vae_training_history.csv", index=False)
 
+    # ------------------------------------------------------- feature-space VAE
+    def _fvae_config(self, category: str) -> FeatureVAEConfig:
+        return FeatureVAEConfig(epochs=self.cfg.fvae_epochs, hflip=category != "screw")
+
+    def _fvae_scores(self, session, feats: np.ndarray, config: FeatureVAEConfig) -> tuple[np.ndarray, np.ndarray]:
+        scores, maps = [], []
+        x = np.ascontiguousarray(np.asarray(feats, np.float32).transpose(0, 3, 1, 2))
+        for start in range(0, len(x), 32):
+            for err in session.run(None, {"features": x[start:start + 32]})[0]:
+                score, amap = score_error_map(err, config, MAP)
+                scores.append(score)
+                maps.append(amap)
+        return np.asarray(scores, np.float32), np.stack(maps).astype(np.float32)
+
+    def stage_fvae(self) -> None:
+        """Feature-space VAE (the "better VAE"): trained on good parts' CNN feature maps (224 px, 3x3 pooled)."""
+        import onnxruntime as ort
+
+        from .fvae import export_fvae_onnx, train_fvae
+
+        rows = []
+        for category in self.cfg.categories:
+            config = self._fvae_config(category)
+            train = self._feature_set(category, "train", config.image_size)[config.pool_size]
+            done = self.cfg.work / "scores" / f"fvae_{category}_done.json"
+            signature = json.dumps({**config.to_dict(), "seed": self.cfg.seed, "n_train": int(len(train))}, sort_keys=True)
+            folder = self.cfg.artifacts / category
+            if (done.exists() and load_json(done, {}).get("signature") == signature and (folder / "fvae.onnx").exists()
+                    and (self.cfg.work / "scores" / f"fvae_{category}.npz").exists()):
+                rows.extend(load_json(done)["history"])
+                self.log(f"  {category}: feature-space VAE already trained with this configuration - reusing it")
+                continue
+            self.log(f"  training feature-space VAE for {category} on {len(train)} good feature maps")
+            model, mean, std = train_fvae(train, config, seed=self.cfg.seed, device=self.cfg.device,
+                                          progress=lambda r: self.log(f"    epoch {r['epoch']:3d} train={r['train_loss']:.4f} "
+                                                                      f"val={r['val_loss']:.4f}")
+                                          if r["epoch"] % 10 == 0 or r["epoch"] == 1 else None)
+            report = export_fvae_onnx(model, mean, std, config, folder / "fvae.onnx")
+            self.log(f"  exported {report}")
+            session = ort.InferenceSession(str(folder / "fvae.onnx"), providers=["CPUExecutionProvider"])
+            payload = {"config": {**config.to_dict(), "parameters": report["parameters"]}}
+            for name in ("cal", "syn", "test", "sev"):
+                feats = self._feature_set(category, name, config.image_size)[config.pool_size]
+                scores, maps = self._fvae_scores(session, feats, config)
+                payload[f"{name}_scores"] = scores
+                if name != "sev":
+                    payload[f"{name}_maps"] = maps.astype(np.float16)
+            payload["sev_levels"] = self._severity_items(category)[1]
+            self._save_scores("fvae", category, payload)
+            history = [{"category": category, **r} for r in config.history]
+            rows.extend(history)
+            save_json({"signature": signature, "history": history}, done)
+        pd.DataFrame(rows).to_csv(self.cfg.reports / "fvae_training_history.csv", index=False)
+
     # ---------------------------------------------------------------- mean
     def stage_mean(self) -> None:
         hpo_rows = []
@@ -619,7 +734,7 @@ class Pipeline:
             data, config = self._load_scores("patchcore", category)
             pc_config = PatchCoreConfig(**config)
             bank = MemoryBank(np.load(self.cfg.artifacts / category / "patchcore_bank.npy"))
-            grids = self._feature_set(category, "sev", pc_config.image_size)[pc_config.pool_size]
+            grids = self._feature_set(category, "sev", pc_config.image_size, align=pc_config.align)[pc_config.pool_size]
             scores, _ = scores_from_distances(patch_distances(grids, bank), pc_config)
             self._save_scores("patchcore", category, {**data, "config": config, "sev_scores": scores,
                                                        "sev_levels": levels})
@@ -639,6 +754,13 @@ class Pipeline:
             data, config = self._load_scores("mean", category)
             self._save_scores("mean", category, {**data, "config": config,
                                                   "sev_scores": np.asarray(mean_scores, np.float32), "sev_levels": levels})
+            if (self.cfg.artifacts / category / "fvae.onnx").exists():
+                import onnxruntime as _ort
+                data, config = self._load_scores("fvae", category)
+                fcfg = FeatureVAEConfig(**{k: v for k, v in config.items() if k in FeatureVAEConfig.__dataclass_fields__})
+                session = _ort.InferenceSession(str(self.cfg.artifacts / category / "fvae.onnx"), providers=["CPUExecutionProvider"])
+                sev_scores, _ = self._fvae_scores(session, self._feature_set(category, "sev", fcfg.image_size)[fcfg.pool_size], fcfg)
+                self._save_scores("fvae", category, {**data, "config": config, "sev_scores": sev_scores, "sev_levels": levels})
             self.log(f"  {category}: scored {len(items)} reduced-severity synthetic defects (levels {SEVERITY_LEVELS})")
 
     # ---------------------------------------------------- diffusion defects
@@ -659,9 +781,13 @@ class Pipeline:
             data, config = self._load_scores("patchcore", category)
             pc_config = PatchCoreConfig(**config)
             bank = MemoryBank(np.load(self.cfg.artifacts / category / "patchcore_bank.npy"))
+            augment = (lambda item: [align_image(read_rgb(item), category)[0]]) if pc_config.align else None  # noqa: E731
             grids = extract_features(self.extractor, items, pc_config.image_size, device=self.cfg.device,
-                                     pools=[pc_config.pool_size])[pc_config.pool_size]
+                                     pools=[pc_config.pool_size], augment=augment)[pc_config.pool_size]
             scores, maps = score_grids(grids, bank, pc_config, map_size=MAP)
+            if pc_config.align:
+                poses = [(align_matrix(img, category), img.shape) for img in map(read_rgb, items)]
+                maps = np.stack([unalign_map(m, mat, shape, MAP) for m, (mat, shape) in zip(maps, poses)])
             self._save_scores("patchcore", category, {**data, "config": config, "diff_scores": scores,
                                                        "diff_maps": maps.astype(np.float16)})
             # VAE
@@ -683,6 +809,15 @@ class Pipeline:
             self._save_scores("mean", category, {**data, "config": config,
                                                   "diff_scores": np.asarray([o[0] for o in out], np.float32),
                                                   "diff_maps": np.stack([o[1] for o in out]).astype(np.float16)})
+            if (self.cfg.artifacts / category / "fvae.onnx").exists():
+                data, config = self._load_scores("fvae", category)
+                fcfg = FeatureVAEConfig(**{k: v for k, v in config.items() if k in FeatureVAEConfig.__dataclass_fields__})
+                session = ort.InferenceSession(str(self.cfg.artifacts / category / "fvae.onnx"), providers=["CPUExecutionProvider"])
+                grids = extract_features(self.extractor, items, fcfg.image_size, device=self.cfg.device,
+                                         pools=[fcfg.pool_size])[fcfg.pool_size]
+                scores, maps = self._fvae_scores(session, grids, fcfg)
+                self._save_scores("fvae", category, {**data, "config": config, "diff_scores": scores,
+                                                      "diff_maps": maps.astype(np.float16)})
             self.log(f"  {category}: scored {len(items)} diffusion-inpainted defects")
 
     # ----------------------------------------------------------- calibrate
@@ -698,7 +833,7 @@ class Pipeline:
             methods: dict[str, dict] = {}
             normalized: dict[str, dict] = {}
             syn_masks = [read_mask(p, MAP) for p in self.synthetic(category).mask_path]
-            for method in ("patchcore", "vae", "mean"):
+            for method in [m for m in BASE_METHODS if (self.cfg.work / "scores" / f"{m}_{category}.npz").exists()]:
                 data, config = self._load_scores(method, category)
                 scale = fit_score_scale(data["cal_scores"], data["syn_scores"])
                 pixel_scale = fit_pixel_scale(data["cal_maps"].astype(np.float32),
@@ -714,19 +849,21 @@ class Pipeline:
             # Weights are scanned from PatchCore-only downwards, so ties keep the stronger single detector.
             subtle = (np.isclose(sev_levels, self.cfg.hpo_severity) if sev_levels is not None
                       else np.zeros(len(normalized["patchcore"].get("sev", [])), bool))
+            partner = "fvae" if "fvae" in normalized else "vae"  # the generative partner of the ensemble
             best_w, best_auc = 1.0, -1.0
             for w in np.round(np.linspace(1, 0, 11), 2):
-                mix = {k: w * normalized["patchcore"][k] + (1 - w) * normalized["vae"][k] for k in ("cal", "syn", "sev")
-                       if k in normalized["patchcore"] and k in normalized["vae"]}
+                mix = {k: w * normalized["patchcore"][k] + (1 - w) * normalized[partner][k] for k in ("cal", "syn", "sev")
+                       if k in normalized["patchcore"] and k in normalized[partner]}
                 defects = np.r_[mix["syn"], mix["sev"][subtle]] if "sev" in mix else mix["syn"]
                 auc = safe_auroc(np.r_[np.zeros(len(mix["cal"])), np.ones(len(defects))], np.r_[mix["cal"], defects])
                 if auc > best_auc + 1e-3:
                     best_w, best_auc = float(w), auc
-            combined = {k: best_w * normalized["patchcore"][k] + (1 - best_w) * normalized["vae"][k]
-                        for k in normalized["patchcore"] if k in normalized["vae"]}
+            combined = {k: best_w * normalized["patchcore"][k] + (1 - best_w) * normalized[partner][k]
+                        for k in normalized["patchcore"] if k in normalized[partner]}
             ens_scale = fit_score_scale(combined["cal"], combined["syn"])
             normalized["ensemble"] = {k: normalize_scores(v, ens_scale) for k, v in combined.items()}
-            methods["ensemble"] = {"weight_patchcore": best_w, "synthetic_auroc": best_auc, "score_scale": ens_scale,
+            methods["ensemble"] = {"weight_patchcore": best_w, "partner": partner, "synthetic_auroc": best_auc,
+                                   "score_scale": ens_scale,
                                    "pixel_scale": {"low": 0.0, "threshold": 50.0, "high": 100.0}, "config": {}}
             for method, info in methods.items():
                 s = normalized[method]
@@ -759,6 +896,8 @@ class Pipeline:
                 info["policies"] = {name: {"threshold": float(p["threshold"]), "band": float(p["band"])}
                                     for name, p in policies.items()}
                 info["default_policy"] = "synthetic_cost"
+                # held-out good scores of qualification: reference for the label-free lot-shift test
+                info["good_reference"] = np.round(np.asarray(s["cal"], np.float64), 3).tolist()
                 info["policy_notes"] = {
                     "synthetic_cost": "default: held-out good + every synthetic set the detector can reliably separate "
                                       "(severity 100/50/25% and diffusion-refined; synthetic AUROC >= 0.9); cost "
@@ -809,17 +948,18 @@ class Pipeline:
             masks = self.test_masks(category)
             maps_by_method = {}
             sev_levels = None
-            for method in ("patchcore", "vae", "mean"):
+            for method in [m for m in BASE_METHODS if m in calibration["methods"]]:
                 data, _ = self._load_scores(method, category)
                 if sev_levels is None and "sev_levels" in data:
                     sev_levels = np.asarray(data["sev_levels"]).round(3).tolist()
                 maps_by_method[method] = normalize_map(data["test_maps"].astype(np.float32),
                                                        calibration["methods"][method]["pixel_scale"])
             w = calibration["methods"]["ensemble"]["weight_patchcore"]
-            maps_by_method["ensemble"] = w * maps_by_method["patchcore"] + (1 - w) * maps_by_method["vae"]
+            partner = calibration["methods"]["ensemble"].get("partner", "vae")
+            maps_by_method["ensemble"] = w * maps_by_method["patchcore"] + (1 - w) * maps_by_method[partner]
             score_dump[category] = {"test_labels": labels.tolist(), "test_defect_types": test.defect_type.tolist(),
                                     "test_roles": test.role.tolist(), "sev_levels": sev_levels, "methods": {}}
-            for method in METHODS:
+            for method in [m for m in METHODS if m in normalized]:
                 scores = np.asarray(normalized[method]["test"])
                 low, high = bootstrap_auroc_ci(labels, scores, n_boot=self.cfg.bootstrap, seed=self.cfg.seed)
                 maps = maps_by_method[method]
@@ -879,6 +1019,68 @@ class Pipeline:
         self.log("\n" + pd.DataFrame(metric_rows)[["category", "method", "image_auroc", "pixel_auroc", "aupro_30"]]
                  .round(4).to_string(index=False))
 
+    # ------------------------------------------------------- lot re-qualification
+    def stage_requalify(self) -> None:
+        """Lot change: label-free shift test on GOOD parts of the current lot; re-qualify PatchCore where it fires.
+
+        MVTec's test images were captured separately from the training images (carpet: a brighter, different roll).
+        The oracle split's good parts play the "N good parts confirmed by inspectors from the current lot"; the
+        operating split (disjoint) measures the effect. Only good parts are used - no defect labels.
+        """
+        from .runtime import Inspector
+
+        inspector = Inspector(self.cfg.artifacts)
+        rows, dists = [], {}
+        costs = self.cfg.costs
+        for category in self.cfg.categories:
+            test = self.paths(category, split="test")
+            new_goods = test[(test.role == "oracle_calibration") & (test.label == 0)]
+            images = [read_rgb(self.abs(p)) for p in new_goods.image_path]
+            lot = inspector.requalify(category, images, costs=costs)
+            shift = lot["lot_shift"]
+            operating = test[test.role == "operating_test"]
+            labels = operating.label.to_numpy()
+            normalized = load_json(self.cfg.work / "scores" / f"normalized_{category}.json")
+            base_scores = np.asarray(normalized["patchcore"]["test"])[(test.role == "operating_test").to_numpy()]
+            base_policy = inspector.policy(category, "patchcore")
+            lot_scores = np.array([inspector._patchcore(read_rgb(self.abs(p)), category, lot)["score"]
+                                   for p in operating.image_path])
+            base = operating_metrics(base_scores, labels, base_policy["threshold"], base_policy["band"], costs)
+            after = operating_metrics(lot_scores, labels, lot["threshold"], lot["band"], costs)
+            row = {"category": category, "n_good_current_lot": shift["n_good"],
+                   "current_lot_median": shift["current_lot_median"],
+                   "qualification_median": shift["qualification_median"], "p_value": shift["p_value"],
+                   "lot_shift": shift["shifted"], "deployed": shift["shifted"],
+                   "base_threshold": base_policy["threshold"], "base_band": base_policy["band"],
+                   "requal_threshold": lot["threshold"], "requal_band": lot["band"],
+                   "base_auroc": safe_auroc(labels, base_scores), "requal_auroc": safe_auroc(labels, lot_scores)}
+            for key in ("false_reject_rate", "escape_rate", "good_check_rate", "review_rate", "expected_cost_per_1000"):
+                row[f"base_{key}"], row[f"requal_{key}"] = base[key], after[key]
+            rows.append(row)
+            dists[category] = {"current_lot_good_base": shift["current_lot_scores"], "good_loo": lot["good_scores"],
+                               "synthetic": lot["synthetic_scores"], "threshold": lot["threshold"], "band": lot["band"]}
+            folder = self.cfg.artifacts / category / "requalified"
+            if shift["shifted"]:
+                folder.mkdir(parents=True, exist_ok=True)
+                np.save(folder / "patchcore_bank.npy", lot["bank"])
+                save_json({k: v for k, v in lot.items() if k not in ("bank", "synthetic_examples")}
+                          | {"source": "good parts of the current lot (MVTec test split, oracle part)",
+                             "created": time.strftime("%Y-%m-%d %H:%M:%S")}, folder / "requalification.json")
+            elif folder.exists():
+                shutil.rmtree(folder)
+            sample = self.cfg.examples / "requalify" / category
+            if sample.exists():
+                shutil.rmtree(sample)
+            sample.mkdir(parents=True)
+            for k, image in enumerate(images):
+                Image.fromarray(resize_rgb(image, 448)).save(sample / f"current_lot_good_{k:02d}.png")
+            self.log(f"  {category}: lot shift p={shift['p_value']:.3g} ({'re-qualified' if shift['shifted'] else 'no shift'}); "
+                     f"operating split FRR {base['false_reject_rate']:.3f}->{after['false_reject_rate']:.3f}, escapes "
+                     f"{base['escape_rate']:.3f}->{after['escape_rate']:.3f}, good CHECK {base['good_check_rate']:.3f}->"
+                     f"{after['good_check_rate']:.3f}")
+        pd.DataFrame(rows).to_csv(self.cfg.reports / "requalification.csv", index=False)
+        save_json(dists, self.cfg.reports / "requalification_scores.json")
+
     def _qualitative(self, category: str, test: pd.DataFrame, maps: dict, normalized: dict, calibration: dict) -> None:
         """Panel per defect type: input | ground truth | PatchCore | VAE | mean baseline."""
         from .viz import overlay
@@ -891,7 +1093,9 @@ class Pipeline:
             picks.append((defect_type, int(idx[np.argsort(scores[idx])[len(idx) // 2]])))
         tile = 200
         header = 30
-        columns = ["input", "ground truth", "PatchCore", "VAE", "mean baseline"]
+        panel = [m for m in ("patchcore", "fvae", "vae", "mean") if m in maps]
+        names = {"patchcore": "PatchCore", "fvae": "feature VAE", "vae": "pixel VAE", "mean": "mean baseline"}
+        columns = ["input", "ground truth"] + [names[m] for m in panel]
         canvas = np.full((header + len(picks) * (tile + 22), len(columns) * tile, 3), 255, np.uint8)
         for c, title in enumerate(columns):
             cv2.putText(canvas, title, (c * tile + 8, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (15, 23, 42), 1, cv2.LINE_AA)
@@ -901,7 +1105,7 @@ class Pipeline:
             mask = read_mask(self.abs(record.mask_path) if record.mask_path else None, tile)
             gt = image.copy()
             gt[mask > 0] = (0.5 * gt[mask > 0] + 0.5 * np.array([255, 40, 40])).astype(np.uint8)
-            tiles = [image, gt] + [overlay(image, np.clip(maps[m][i], 0, 100)) for m in ("patchcore", "vae", "mean")]
+            tiles = [image, gt] + [overlay(image, np.clip(maps[m][i], 0, 100)) for m in panel]
             y = header + r * (tile + 22)
             for c, t in enumerate(tiles):
                 canvas[y:y + tile, c * tile:(c + 1) * tile] = t

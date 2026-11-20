@@ -29,6 +29,7 @@ class PatchCoreConfig:
     topk_fraction: float = 0.01
     pool_size: int = 3  # local neighbourhood average of the CNN features (3 = PatchCore default, 1 = raw)
     bank_rotations: int = 1  # good images were added to the bank at this many 90-degree rotations (train only)
+    align: bool = False  # pose normalisation (elongated parts): rotate to the canonical pose before features
 
     def to_dict(self) -> dict:
         return asdict(self)

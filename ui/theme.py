@@ -13,7 +13,7 @@ AXIS = "#c3c2b7"
 
 # Categorical slots (validated: adjacent CVD dE >= 9.1, first three all-pairs safe).
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
-METHOD_COLORS = {"patchcore": SERIES[0], "vae": SERIES[1], "mean": SERIES[2], "ensemble": SERIES[3]}
+METHOD_COLORS = {"patchcore": SERIES[0], "fvae": SERIES[6], "vae": SERIES[1], "mean": SERIES[2], "ensemble": SERIES[3]}
 CATEGORY_COLORS = {"bottle": SERIES[0], "screw": SERIES[1], "carpet": SERIES[2], "metal_nut": SERIES[6]}
 CLASS_COLORS = {"good": SERIES[0], "defect": SERIES[1], "synthetic": SERIES[2], "diffusion": SERIES[6]}
 
