@@ -65,7 +65,9 @@ synthetic defects and an explicit cost model; CHECK goes to a human review queue
 
 * Source code, notebook and full report: see the GitHub repository linked in the app.
 * Data: [MVTec AD](https://www.mvtec.com/research-teaching/datasets/mvtec-ad) — CC BY-NC-SA 4.0, research and teaching only.
-* The app is a presentation that ends in the live demo (last tab); the 📖 Guide tab explains every model and concept.
+* The app is a presentation that ends in the live demo (last tab); the 📖 Guide tab explains every model and concept
+  and offers the complete HTML guide (flow diagrams, every parameter, app tour) as a download.
+* All five detectors are selectable and compared in 📈 Results → Model comparison (PatchCore is best and deployed).
 * API: `/inspect_part`, `/inspect_batch`, `/health` (see "Use via API").
 
 Space: `{space_id}`

@@ -6,6 +6,7 @@ New product · Guide · 🎬 Live demo (inspect · batch · review queue · API)
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import tempfile
 import time
@@ -597,14 +598,15 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
         lots_state = gr.State({})
 
         gr.HTML(ex.hero(store, inspector))
-        gr.HTML(ex.nav())
+        gr.HTML(ex.nav(build_id()))
         with gr.Group(elem_classes="ds-settings"):
             gr.Markdown(ex.settings_help(), elem_classes="ds-note")
             with gr.Row(equal_height=True):
                 category = gr.Dropdown(_labelled(categories, category_labels), value=default_category,
                                        label="Product", scale=2, info="which production line")
                 method = gr.Dropdown(_labelled(inspector.methods(default_category), METHOD_LABELS), value=default_method,
-                                     label="Detector", scale=3, info="PatchCore is the deployed detector")
+                                     label="Detector", scale=3,
+                                     info="5 detectors, all built and calibrated; PatchCore is deployed (compare in 📈 Results)")
                 lot_choice = gr.Radio([LOT_TRAIN, LOT_CURRENT] if initial_lot == LOT_CURRENT else [LOT_TRAIN],
                                       value=initial_lot, label="Production lot", scale=3,
                                       info="re-qualified models exist where a lot change was detected")
@@ -723,6 +725,7 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
                                  "Start with the table <i>What is trained, and on what?</i> — then one card per component, "
                                  "with the exact parameters read from the shipped models."))
                 gr.HTML(ex.components_html(inspector, store))
+                gr.HTML(ex.detectors_html(store, inspector))
                 gr.HTML(ex.backbone_html(inspector))
                 with gr.Row():
                     with gr.Column():
@@ -764,6 +767,7 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
                                  "threshold. First what the metrics mean, then the confusion matrices of the deployed "
                                  "decisions, then ranking quality, localisation and speed.",
                                  "Product-specific charts follow the <b>Product</b> selected in the global settings."))
+                gr.HTML(ex.detector_comparison_html(store, inspector))
                 gr.HTML(ex.glossary_html())
                 _section("Decisions of the deployed system (confusion matrices, operating test split)")
                 with gr.Row():
@@ -984,7 +988,15 @@ def build_app(project_root: str | Path = PROJECT_ROOT, gpu_check=None) -> gr.Blo
                 gr.HTML(ex.intro("📖", "Guide — every concept, model and parameter explained",
                                  "The complete project guide (also in the repository as <code>docs/GUIDE.md</code>): what "
                                  "each model is, why it was chosen, how it was trained and how to run everything.",
-                                 None))
+                                 "The <b>complete HTML guide</b> goes further: flow diagrams of every process (build, "
+                                 "inspection, calibration, human review, monitoring, deployment), the five detectors "
+                                 "compared, every parameter, an app tour with screenshots and the demo script. One "
+                                 "self-contained file — download it below and open it in any browser."))
+                guide_html = root / "docs" / "DefectSpotter_Complete_Guide.html"
+                if guide_html.exists():
+                    with gr.Row():
+                        gr.DownloadButton("⬇ Download the complete HTML guide", value=str(guide_html), variant="primary",
+                                          scale=0, min_width=320)
                 gr.HTML(ex.glossary_html())
                 gr.Markdown(guide_path.read_text(encoding="utf-8") if guide_path.exists()
                             else "_docs/GUIDE.md not found in this build._")
@@ -1280,6 +1292,18 @@ MONITORING_POLICY = """
 
 Drift never triggers silent retraining: a memory-bank refresh (re-qualification) is a controlled change with re-validation.
 """
+
+
+def build_id() -> str:
+    """Fingerprint of the running code + models; the page compares it with the server's to detect a redeploy."""
+    digest = hashlib.sha1()
+    root = Path(__file__).resolve().parent.parent
+    files = [root / "app.py", root / "artifacts" / "manifest.json", *sorted((root / "ui").glob("*.py")),
+             *sorted((root / "defectspotter").glob("*.py"))]
+    for path in files:
+        if path.exists():
+            digest.update(path.read_bytes())
+    return "ds-" + digest.hexdigest()[:12]
 
 
 def api_markdown(categories: list[str]) -> str:

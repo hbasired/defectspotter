@@ -74,3 +74,43 @@ def test_app_builds():
     from ui.app import build_app
 
     assert isinstance(build_app(ROOT), gr.Blocks)
+
+
+def test_detector_comparison_covers_all_five_detectors(inspector):
+    from ui import explain as ex
+    from ui.store import ReportStore
+
+    store = ReportStore(ROOT)
+    stats = ex.detector_stats(store, inspector)
+    assert set(stats.method) == set(ex.DETECTOR_ORDER)
+    assert stats.set_index("method").loc["patchcore", "rank"] == 1  # the deployed detector is the best one
+    for column in ("auroc_mean", "pixel_auroc", "aupro", "cost_per_1000", "latency_ms"):
+        assert stats[column].notna().all(), column
+    html = ex.detector_comparison_html(store, inspector)
+    assert "Model comparison" in html and "★" in html and "PatchCore is the best detector" in html
+    assert "how they differ" in ex.detectors_html(store, inspector)
+
+
+def test_build_id_is_stable_and_embedded():
+    from ui.app import build_id
+    from ui import explain as ex
+
+    first, second = build_id(), build_id()
+    assert first == second and first.startswith("ds-")
+    assert f'data-build="{first}"' in ex.nav(first)
+
+
+def test_guide_diagrams_are_valid_svg():
+    import sys
+    import xml.etree.ElementTree as ET
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from guide_html import svg
+    from guide_html.data import GuideData
+
+    numbers = GuideData(ROOT).numbers()
+    for name, make in svg.ALL.items():
+        flow = make(numbers)
+        ET.fromstring(flow.svg())  # well-formed XML
+        for e in flow.edges:
+            assert e["a"] in flow.nodes and e["b"] in flow.nodes, name

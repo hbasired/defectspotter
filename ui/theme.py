@@ -59,6 +59,34 @@ FORCE_LIGHT_JS = """
   strip();
   new MutationObserver(strip).observe(document.documentElement, {attributes: true, subtree: false, attributeFilter: ['class']});
   if (document.body) new MutationObserver(strip).observe(document.body, {attributes: true, attributeFilter: ['class']});
+  // Stale-page guard: after a redeploy, a page loaded earlier talks to a server with different event wiring and
+  // every control raises errors. Compare this page's build id with the server's and ask for a reload.
+  const staleCheck = async () => {
+    const el = document.getElementById('ds-build');
+    if (!el || document.getElementById('ds-stale')) return;
+    try {
+      const base = window.location.pathname.replace(/\/$/, '');
+      const r = await fetch(base + '/config', { cache: 'no-store' });
+      if (!r.ok) return;
+      const txt = await r.text();
+      if (txt.indexOf(el.dataset.build) >= 0) return;
+      const b = document.createElement('div');
+      b.id = 'ds-stale';
+      b.setAttribute('role', 'alert');
+      b.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:10000;background:#fff6dc;' +
+        'color:#7a5200;border:1px solid #e3a008;border-radius:10px;padding:10px 16px;font:600 15px system-ui,sans-serif;' +
+        'box-shadow:0 6px 24px rgba(0,0,0,.18);display:flex;gap:12px;align-items:center;';
+      b.innerHTML = '<span>⚠ A newer version of DefectSpotter was deployed — reload the page to keep using it.</span>';
+      const btn = document.createElement('button');
+      btn.textContent = 'Reload';
+      btn.style.cssText = 'background:#2a78d6;color:#fff;border:0;border-radius:8px;padding:6px 14px;font:600 14px system-ui;cursor:pointer;';
+      btn.onclick = () => window.location.reload();
+      b.appendChild(btn);
+      document.body.appendChild(b);
+    } catch (e) { /* offline or blocked: ignore */ }
+  };
+  setInterval(staleCheck, 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) staleCheck(); });
 }
 """
 
@@ -96,7 +124,9 @@ CSS = f"""
 .ds-decision .meta {{ font-size: .92rem; margin-top: 4px; }}
 .ds-decision .why {{ font-size: .86rem; margin-top: 8px; }}
 .ds-badge {{ display: inline-block; border-radius: 8px; padding: 2px 8px; font-weight: 700; font-size: .8rem; }}
-.ds-table {{ width: 100%; border-collapse: collapse; font-size: .88rem; }}
+.ds-table {{ width: 100%; border-collapse: collapse; font-size: .88rem; border: none !important; }}
+.ds-table th, .ds-table td {{ border-left: none !important; border-right: none !important; border-top: none !important; }}
+.ds-table tr:last-child td {{ border-bottom: none !important; }}
 .ds-table th {{ text-align: left; color: {INK_2}; font-weight: 600; border-bottom: 1px solid {GRID}; padding: 6px 8px; }}
 .ds-table td {{ border-bottom: 1px solid #f0efec; padding: 6px 8px; font-variant-numeric: tabular-nums; }}
 .ds-warn {{ background: #fff6dc; border: 1px solid #f3d27a; color: #7a5200; border-radius: 12px; padding: 10px 14px; }}

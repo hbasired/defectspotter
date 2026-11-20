@@ -135,7 +135,7 @@ def hero(store: ReportStore, inspector) -> str:
 </div>"""
 
 
-def nav() -> str:
+def nav(build_id: str = "") -> str:
     steps = [("🏠", "Overview", "problem · solution · results"), ("📊", "Data", "source · splits · EDA"),
              ("🧠", "Models & training", "backbone · PatchCore · VAEs"), ("📈", "Results", "metrics · confusion matrices"),
              ("🎚️", "Threshold & cost", "trade-offs in money"), ("🌗", "Drift & new lots", "monitoring · re-qualification"),
@@ -143,8 +143,9 @@ def nav() -> str:
              ("🎬", "Live demo", "inspect · batch · review")]
     items = "".join(f'<div class="ds-nav-step"><div class="i">{i}</div><div><b>{esc(t)}</b><span>{esc(d)}</span></div></div>'
                     for i, t, d in steps)
-    return (f'<div class="ds-nav"><div class="ds-nav-title">Presentation path — the tabs below go from the story to the '
-            f'live demonstration (last tab)</div><div class="ds-nav-row">{items}</div></div>')
+    build = f'<div id="ds-build" data-build="{esc(build_id)}" style="display:none"></div>' if build_id else ""
+    return (f'{build}<div class="ds-nav"><div class="ds-nav-title">Presentation path — the tabs below go from the story to '
+            f'the live demonstration (last tab)</div><div class="ds-nav-row">{items}</div></div>')
 
 
 def settings_help() -> str:
@@ -247,6 +248,185 @@ def components_html(inspector, store: ReportStore) -> str:
 <p class="ds-small" style="margin-top:6px"><b>Key point:</b> the deep backbone is used as a fixed "feature camera" — it is
 <b>not</b> fine-tuned and <b>no classification head</b> is attached, because there are no defect labels to train one.
 What adapts to each product is the memory bank (PatchCore) and the small VAEs, both learned from good parts only.</p>""", "🧩")
+
+
+# ------------------------------------------------------------------ the five detectors compared
+DETECTOR_ORDER = ("patchcore", "ensemble", "fvae", "vae", "mean")
+DETECTOR_PROFILES = {
+    "patchcore": {
+        "family": "Memory bank (nearest neighbour)",
+        "learns": "a 1% coreset of the backbone's 384-number patch descriptors of good parts — <b>built</b>, no "
+                  "gradient training",
+        "scores": "distance of every patch to its nearest normal patch; image score = largest patch distance or "
+                  "top-k mean",
+        "strength": "best ranking and localisation; nothing to train; works from a handful of good images",
+        "weakness": "rotating parts need pose normalisation; the bank grows with product variety",
+        "verdict": "🏆 Best — deployed"},
+    "ensemble": {
+        "family": "Combination of two detectors",
+        "learns": "one weight <i>w</i> on held-out good parts + synthetic defects",
+        "scores": "<i>w</i> × PatchCore + (1 − <i>w</i>) × feature-space VAE, both on the 0–100 scale",
+        "strength": "two independent views; smallest gap to the labelled-defect threshold",
+        "weakness": "no accuracy gain over PatchCore alone, at ≈ 1.8× the compute",
+        "verdict": "Tie with PatchCore, but slower — not deployed"},
+    "fvae": {
+        "family": "Generative AI — VAE on backbone features (v3)",
+        "learns": "to compress the 384 × 28 × 28 feature map of good parts into a 32 × 7 × 7 latent and rebuild it "
+                  "(1.44 M parameters, 60 epochs)",
+        "scores": "per-patch reconstruction error of the features",
+        "strength": "the generative detector; good localisation; small (5.5 MB)",
+        "weakness": "weaker on rotating screws — a VAE partly rebuilds unusual patterns as well",
+        "verdict": "Best generative model (2nd overall)"},
+    "vae": {
+        "family": "Generative AI — VAE on pixels (v1)",
+        "learns": "to squeeze a 128 × 128 image through 128 numbers and rebuild it (≈ 2 M parameters, 120 epochs)",
+        "scores": "0.5 · |image − reconstruction| + 0.5 · (1 − SSIM)",
+        "strength": "shows “what a good part would look like” (reconstruction view in the demo)",
+        "weakness": "blurry reconstructions → error everywhere; near random on screws",
+        "verdict": "Superseded by the feature-space VAE"},
+    "mean": {
+        "family": "Classical statistics",
+        "learns": "per-pixel mean and standard deviation of ECC-aligned good parts",
+        "scores": "z = |pixel − mean| / std, blurred; mean of the top 1%",
+        "strength": "fully transparent and the fastest",
+        "weakness": "fails on rotating parts and on textures",
+        "verdict": "Classical reference only"},
+}
+
+
+def detector_stats(store: ReportStore, inspector) -> pd.DataFrame:
+    """One row per detector: per-product and mean image AUROC, localisation, label-free operating point, cost, speed."""
+    metrics, summary, lat = store.csv("metrics.csv"), store.json("summary.json"), store.csv("latency.csv")
+    if metrics.empty:
+        return pd.DataFrame()
+    cats = [c for c in inspector.categories if c in set(metrics.category)]
+    ops = summary.get("operating_default_policy", {})
+    gaps = summary.get("mean_abs_threshold_gap", {})
+    rows = []
+    for method in [m for m in DETECTOR_ORDER if m in set(metrics.method)]:
+        mm = metrics[metrics.method == method].set_index("category")
+        op = ops.get(method, {})
+        row = {"method": method}
+        row.update({f"auroc_{c}": float(mm.loc[c, "image_auroc"]) for c in cats if c in mm.index})
+        row.update({"auroc_mean": float(mm.loc[cats, "image_auroc"].mean()),
+                    "pixel_auroc": float(mm.loc[cats, "pixel_auroc"].mean()),
+                    "aupro": float(mm.loc[cats, "aupro_30"].mean()),
+                    "false_reject_rate": op.get("false_reject_rate", np.nan), "escape_rate": op.get("escape_rate", np.nan),
+                    "check_rate": op.get("review_rate", np.nan), "cost_per_1000": op.get("expected_cost_per_1000", np.nan),
+                    "threshold_gap": gaps.get(method, np.nan),
+                    "latency_ms": float(lat[lat.method == method].latency_ms_median.median()) if not lat.empty else np.nan})
+        rows.append(row)
+    frame = pd.DataFrame(rows)
+    frame["rank"] = frame.auroc_mean.rank(ascending=False, method="min").astype(int)
+    return frame
+
+
+def _best(values: pd.Series, higher: bool = True, tol: float = 5e-4) -> set:
+    v = values.astype(float)
+    target = v.max() if higher else v.min()
+    return set(v.index[(v - target).abs() <= tol]) if np.isfinite(target) else set()
+
+
+def _ensemble_weights(inspector) -> str:
+    weights = []
+    for c in inspector.categories:
+        w = inspector.calibration(c)["methods"].get("ensemble", {}).get("weight_patchcore")
+        if w is not None:
+            weights.append(f"{float(w):.1f}")
+    return " / ".join(weights)
+
+
+def detectors_html(store: ReportStore, inspector) -> str:
+    """Models & training tab: how the five detectors differ (qualitative) + headline number + verdict."""
+    stats = detector_stats(store, inspector)
+    if stats.empty:
+        return ""
+    stats = stats.set_index("method")
+    weights = _ensemble_weights(inspector)
+    rows = []
+    for method in stats.index:
+        p = DETECTOR_PROFILES[method]
+        learns = p["learns"] + (f" (w = {weights} for {' / '.join(inspector.categories)})"
+                                if method == "ensemble" and weights else "")
+        rows.append([f"<b>{esc(METHOD_LABELS.get(method, method))}</b>", p["family"], learns, p["scores"],
+                     p["strength"], p["weakness"], f"<b>{stats.loc[method, 'auroc_mean']:.3f}</b> (#{stats.loc[method, 'rank']})",
+                     f"<b>{p['verdict']}</b>"])
+    return card("The five detectors — all built, how they differ, which one is better", f"""
+<p class="ds-note">Every entry of the <b>Detector</b> menu is a separate, fully built and calibrated model: each one learned
+<b>only from good parts</b>, got its own 0–100 score scale and its own label-free PASS / CHECK / REJECT thresholds, and is
+evaluated on the same held-out real defects. They differ in <i>what they remember about a good part</i> and <i>how they
+measure “unusual”</i>. The full numbers are in <b>📈 Results → Model comparison</b>; the live demo shows all five on the
+same part (“All detectors on this part”).</p>
+<div style="overflow-x:auto">{table(rows, ["detector", "family", "what it learns from good parts", "how it scores a new part",
+                                         "strength", "weakness", "mean image AUROC (rank)", "verdict"])}</div>""", "🏁")
+
+
+def detector_comparison_html(store: ReportStore, inspector) -> str:
+    """Results tab: quantitative comparison of the five detectors with the best value per column and a verdict."""
+    stats = detector_stats(store, inspector)
+    if stats.empty:
+        return ""
+    stats = stats.set_index("method")
+    cats = [c for c in inspector.categories if f"auroc_{c}" in stats]
+    star_cols = {f"auroc_{c}": True for c in cats} | {"auroc_mean": True, "pixel_auroc": True, "aupro": True,
+                                                       "cost_per_1000": False}
+    best = {col: _best(stats[col], higher) for col, higher in star_cols.items()}
+
+    def cell(method, col, text):
+        return f"<b>★ {text}</b>" if method in best.get(col, set()) else text
+
+    rows = []
+    for method in stats.index:
+        s = stats.loc[method]
+        rows.append([f"<b>{esc(METHOD_LABELS.get(method, method))}</b>",
+                     *[cell(method, f"auroc_{c}", f"{s[f'auroc_{c}']:.3f}") for c in cats],
+                     cell(method, "auroc_mean", f"{s.auroc_mean:.3f}"), cell(method, "pixel_auroc", f"{s.pixel_auroc:.3f}"),
+                     cell(method, "aupro", f"{s.aupro:.3f}"), pct(s.false_reject_rate), pct(s.escape_rate),
+                     pct(s.check_rate), cell(method, "cost_per_1000", f"{s.cost_per_1000:,.0f}"),
+                     f"{s.latency_ms:.0f}", f"<b>{DETECTOR_PROFILES[method]['verdict']}</b>"])
+    header = ["detector", *[f"image AUROC {CATEGORY_INFO.get(c, {}).get('title', c).lower()}" for c in cats],
+              "mean image AUROC", "pixel AUROC", "AUPRO 30%", "false rejects", "escapes", "sent to CHECK",
+              "cost / 1,000 parts (USD)", "ms per part", "verdict"]
+    winners = []
+    for c in cats:
+        names = [METHOD_LABELS.get(m, m).split(" (")[0] for m in stats.index if m in best[f"auroc_{c}"]]
+        winners.append(f"{CATEGORY_INFO.get(c, {}).get('title', c)} — {' & '.join(names)} ({stats[f'auroc_{c}'].max():.3f})")
+    pc, ens = stats.loc["patchcore"], stats.loc["ensemble"] if "ensemble" in stats.index else None
+    fv, vae, mean = (stats.loc[m] if m in stats.index else None for m in ("fvae", "vae", "mean"))
+    everywhere = all("patchcore" in best[f"auroc_{c}"] for c in cats)
+    verdict = (f"<b>PatchCore is the best detector and the deployed one.</b> "
+               + ("Best or tied-best image AUROC on every product" if everywhere else "The highest mean image AUROC")
+               + f" (mean {pc.auroc_mean:.3f}), the lowest expected cost ({pc.cost_per_1000:,.0f} USD per 1,000 parts)"
+               + (" and no false rejects at its label-free threshold." if pc.false_reject_rate == 0 else "."))
+    if ens is not None:
+        close = max(abs(ens.pixel_auroc - pc.pixel_auroc), abs(ens.aupro - pc.aupro))
+        verdict += (f" The <b>ensemble</b> is a statistical tie (mean {ens.auroc_mean:.3f}; pixel metrics within {close:.3f}) "
+                    f"but runs two models ({ens.latency_ms:.0f} vs {pc.latency_ms:.0f} ms per part) and costs slightly more "
+                    f"({ens.cost_per_1000:,.0f} USD), so it brings no benefit.")
+    if fv is not None and vae is not None:
+        verdict += (f" Of the generative models the <b>feature-space VAE</b> ({fv.auroc_mean:.3f}) is far ahead of the "
+                    f"<b>pixel VAE</b> ({vae.auroc_mean:.3f}): rebuilding what the backbone sees beats rebuilding raw pixels.")
+    if mean is not None:
+        verdict += (f" The classical <b>mean-image baseline</b> ({mean.auroc_mean:.3f}) shows why learned features are "
+                    f"needed (rotating screws, textures).")
+    req = store.csv("requalification.csv")
+    lot_note = ""
+    if not req.empty and "deployed" in req:
+        moved = [f"{CATEGORY_INFO.get(r.category, {}).get('title', r.category).lower()} from {pct(r.base_review_rate)} to "
+                 f"{pct(r.requal_review_rate)}" for r in req[req.deployed.astype(bool)].itertuples()]
+        if moved:
+            lot_note = (" — after re-qualification for the current lot (🌗 Drift &amp; new lots) PatchCore's CHECK share "
+                        "falls for " + "; ".join(moved))
+    return card("Model comparison — which detector is best?", f"""
+<p class="ds-note">All five detectors were built from good parts only and calibrated the same label-free way; here they
+are measured on the same held-out real defects. <b>★</b> = best value in the column (ties within 0.0005 share the star).
+Best image AUROC per product: {"; ".join(winners)}.</p>
+<div style="overflow-x:auto">{table(rows, header)}</div>
+<p class="ds-small" style="margin-top:6px">AUROC / AUPRO: higher is better (1.0 = perfect ranking / localisation).
+Operating columns: each detector at its own label-free default threshold on the operating test split, mean of the
+products, qualification-lot models{lot_note}. Cost: expected cost per 1,000 parts at 1% defects (escape 400, false reject 2,
+human check 0.30 USD). Rows are sorted by deployment preference.</p>
+<div class="ds-subcard" style="margin-top:8px">{verdict}</div>""", "🏁")
 
 
 def backbone_html(inspector) -> str:

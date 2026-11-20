@@ -6,6 +6,10 @@ run it, how to present it.*
 
 Live app: **https://huggingface.co/spaces/bhkr0901/defectspotter** · code: **https://github.com/hbasired/defectspotter**
 
+**More detail:** `docs/DefectSpotter_Complete_Guide.html` — the same content, elaborated, with flow diagrams of every process
+(build, inspection, calibration, human review, monitoring, deployment), the five detectors compared and an app tour with
+screenshots. Download it from the app's 📖 Guide tab and open it in any browser.
+
 ---
 
 ## 1. The problem in one minute
@@ -381,6 +385,24 @@ recipe) 1.000 / 0.983 / 0.940 → v3 (pose-normalised screws) 1.000 / 0.997 / 0.
 screw (p = 0.86), so its qualification model stays deployed even though re-qualifying it would also have lowered its
 escapes on the test split — the decision rule is fixed in advance, not picked from test results.
 
+## 10b-2. Which detector is better? (all five compared)
+
+Every entry of the *Detector* menu is a separate, fully built and calibrated model — same good-only training data, same
+label-free calibration, same held-out real defects:
+
+| detector | what it learns from good parts | image AUROC bottle / screw / carpet (mean) | cost / 1,000 parts | verdict |
+|---|---|---|---|---|
+| **PatchCore** | a 1% coreset of patch descriptors (built, no gradient training) | 1.000 / 0.997 / 0.940 (**0.979**) | **206 USD** | 🏆 best — deployed |
+| Ensemble | one weight *w* (PatchCore share 1.0 / 0.9 / 0.8) | 1.000 / 0.994 / 0.938 (0.978) | 215 USD | tie with PatchCore, ~1.8× slower |
+| Feature-space VAE | to rebuild the 384×28×28 feature map (1.44 M parameters) | 0.997 / 0.798 / 0.902 (0.899) | 1,137 USD | best generative model |
+| Pixel VAE (v1) | to rebuild a 128×128 image through 128 numbers | 0.902 / 0.477 / 0.671 (0.683) | 1,855 USD | superseded |
+| Mean-image baseline | per-pixel mean ± std of aligned good parts | 0.975 / 0.277 / 0.435 (0.562) | 1,930 USD | classical reference |
+
+**Verdict:** PatchCore has the best or tied-best image AUROC on every product, the lowest expected cost and no false
+rejects at its label-free threshold. The ensemble ties (pixel metrics within 0.001) but runs two models; the feature-space
+VAE is far ahead of the pixel VAE (rebuilding what the backbone sees beats rebuilding pixels); the mean baseline shows why
+learned features are needed. The app shows the full table in 🧠 Models & training and 📈 Results.
+
 ## 10c. Real-world numbers: one production shift
 
 Rates are easier to judge as counts. The app's Overview turns the deployed operating points into **one 8-hour shift** of
@@ -473,3 +495,7 @@ human review. **EWMA / PSI** — see Section 11. **Mann–Whitney U** — a rank
   or ship; the CHECK band absorbs the overlap between the score distributions.
 * **What happens with a new lot or a camera change?** The camera-health gate and the control charts raise an alarm;
   a new lot is re-qualified from a handful of good parts (Section 9.4).
+* **Did we build all five detectors?** Yes — each is a separate, calibrated model selectable in the app and the API;
+  PatchCore is deployed because it is the best (Section 10b-2).
+* **I got “didn't receive enough input values” errors after switching the detector.** The app had been updated while the
+  page was open; reload the page. The app now shows a “new version deployed — reload” banner in that case.

@@ -7,7 +7,8 @@ without the original chat. Read it top to bottom once; then use §7 to set up an
 * **Branch:** everything is merged into `main` (feature branches `claude/optimistic-mccarthy-q7e5mh` and
   `claude/nice-einstein-ibh15o` are fully contained in it)
 * **Live demo:** https://huggingface.co/spaces/bhkr0901/defectspotter (direct app: https://bhkr0901-defectspotter.hf.space)
-* **Last updated:** 2026-11-20 (second build session: v2 detector, calibration fixes, full re-run, deployment)
+* **Last updated:** 2026-11-20 (third build session: v3 detector — pose-normalised screws, feature-space VAE, lot
+  re-qualification; presentation UI; real-world one-shift view; five-detector comparison; complete HTML guide; redeployed)
 
 ---
 
@@ -99,15 +100,16 @@ choose the default threshold.
 | Path | Purpose |
 |---|---|
 | `app.py` | entry point (local / Colab / HF ZeroGPU: imports `spaces` first, registers a `@spaces.GPU` self-test) |
-| `ui/` | `app.py` (10 tabs + API), `charts.py` (Plotly, colour-blind-validated palette, single y-axis), `story.py` (presentation HTML, numbers read from reports), `store.py`, `theme.py` (light theme, forced even in OS dark mode) |
-| `defectspotter/` | `data`, `synthetic`, `features`*, `patchcore`, `vae`*, `baseline`, `metrics`, `decision`, `drift`, `viz`, `runtime`, `pipeline`* (*need PyTorch, training only) |
-| `scripts/` | `download_data.py`, `train.py`, `generate_diffusion_defects.py`, `backbone_study.py`, `deploy_hf.py`, `build_report.py`, `summarize_results.py` |
+| `ui/` | `app.py` (9 tabs, live demo last, + API), `explain.py` (self-explanatory HTML: intros, cards, five-detector comparison, real-world view), `charts.py` (Plotly, colour-blind-validated palette, single y-axis), `story.py` (presentation HTML, numbers read from reports), `store.py`, `theme.py` (light theme, forced even in OS dark mode) |
+| `defectspotter/` | `data`, `synthetic`, `features`*, `patchcore`, `pose`, `vae`*, `fvae`*, `baseline`, `metrics`, `decision`, `drift`, `operations`, `viz`, `runtime`, `pipeline`* (*need PyTorch, training only) |
+| `scripts/` | `download_data.py`, `train.py`, `generate_diffusion_defects.py`, `backbone_study.py`, `deploy_hf.py`, `build_report.py`, `summarize_results.py`, `make_demo_images.py`, `build_guide.py` (+ `guide_html/`: content, SVG flow diagrams, styles) |
 | `artifacts/` | `manifest.json`, `feature_extractor.onnx`, `<product>/{calibration.json, patchcore_bank.npy, vae.onnx, mean_baseline.*}` |
 | `reports/` | every metric/table/figure (`metrics.csv`, `operating_metrics.csv`, `threshold_comparison.csv`, `scores.json`, `drift_*.csv`, `few_shot.csv`, `backbone_study.csv`, `figures/`, `DefectSpotter_report.html`) |
 | `examples/` | down-scaled MVTec test images + masks for the demo, synthetic and diffusion galleries, new-product samples |
 | `DefectSpotter_End_to_End_Colab_HUGGINGFACE.ipynb` | Colab: clones the repo, runs each stage with inline charts, launches the app, deploys |
 | `DefectSpotter_HuggingFace_Deployment_Guide.md` | local / Colab / HF / Claude deployment details |
-| `docs/` | `MODEL_CARD.md`, `DATA_CARD.md`, `screenshots/` |
+| `docs/` | `GUIDE.md`, `DefectSpotter_Complete_Guide.html` (self-contained, built by `scripts/build_guide.py`), `MODEL_CARD.md`, `DATA_CARD.md`, `screenshots/` (WebP, used by the HTML guide) |
+| `demo_images/` | images to upload in a live demo + `expected_outcomes.csv` (verified against the deployed models) |
 | `tests/` | `test_core.py` (unit), `test_app.py` (integration on shipped artifacts) |
 
 ## 5. Results snapshot
@@ -287,12 +289,19 @@ Colab secret.
 * A Claude session cannot expose a public URL to a backend running inside its own sandbox (no inbound connections; tunnels
   such as `--share` are blocked) — the Space is the always-on backend + frontend.
 * After deploying: open the Space, wait for the build (~1–2 min), run one sample per product on the Inspect tab, check `/health`.
+* **Reload open pages after a redeploy.** A page opened before the update talks to a server with different event wiring and
+  every control fails ("An event handler didn't receive enough input values", "Value … is not in the list of choices").
+  The app now embeds a build fingerprint and shows a yellow "new version deployed — reload" banner in that case.
 
 ## 10. Next steps (prioritised backlog)
 
 **Done in session 3:** feature-space VAE (better GenAI detector), pose-normalised screws, label-free lot-shift test +
 re-qualification (carpet CHECK load ~50% → ~6%), UI rebuilt as a presentation ending in the live demo (intro boxes,
-captions, KPI tiles, confusion-matrix heat maps, model/training explainer), `docs/GUIDE.md`, `demo_images/`.
+captions, KPI tiles, confusion-matrix heat maps, model/training explainer), `docs/GUIDE.md`, `demo_images/`; real-world
+one-shift view (`defectspotter/operations.py`: parts, inspectors, escapes, USD per shift, sourced assumptions); five-detector
+comparison with verdict (Models & training + Results tabs; PatchCore best and deployed); complete HTML guide
+(`scripts/build_guide.py` → `docs/DefectSpotter_Complete_Guide.html`, downloadable from the Guide tab); stale-page reload
+banner; notebook cells 12c (detector comparison), 12d (one shift) and 16b (HTML guide).
 
 **Done in session 2:** branches merged into `main`; Space deployed and smoke-tested; v2 detector (per-product label-free
 recipe; screw 0.935 → 0.983, carpet 0.880 → 0.940); consistent single run of all reports; smoothed thresholds with

@@ -9,6 +9,9 @@
   the same Gradio dashboard runs locally with `python app.py`.
 * **Notebook:** [`DefectSpotter_End_to_End_Colab_HUGGINGFACE.ipynb`](DefectSpotter_End_to_End_Colab_HUGGINGFACE.ipynb) — EDA → training → evaluation → dashboard → deployment.
 * **Data:** MVTec AD (bottle, screw, carpet; metal nut for few-shot onboarding) — CC BY-NC-SA 4.0, research/teaching only.
+* **Complete guide:** [`docs/DefectSpotter_Complete_Guide.html`](docs/DefectSpotter_Complete_Guide.html) — one self-contained
+  page (download it and open it in a browser, or use the app's 📖 Guide tab): flow diagrams of every process, every model,
+  concept and parameter, the five detectors compared, results, app tour with screenshots and the demo script.
 
 <!-- RESULTS:START -->
 ## Results
@@ -138,12 +141,12 @@ apply everywhere.
 |---|---|
 | 🏠 **Overview** | Problem, user, how it works, headline results, deployed operating point per product, business case, responsible AI |
 | 📊 **Data** | Where the data comes from (MVTec AD, pinned mirror, licence), the leakage-free split, EDA charts, synthetic & diffusion defects |
-| 🧠 **Models & training** | What is trained on what (backbone frozen, no head), backbone, PatchCore recipe per product, both VAEs with every parameter, training curves, baseline, calibration |
-| 📈 **Results** | Metric glossary, **confusion-matrix heat maps** of the deployed decisions, AUROC bars/ROC/heat map, per-defect-type decisions, qualitative heat maps, thresholds, latency |
+| 🧠 **Models & training** | What is trained on what (backbone frozen, no head), **the five detectors and how they differ**, backbone, PatchCore recipe per product, both VAEs with every parameter, training curves, baseline, calibration |
+| 📈 **Results** | **Model comparison — which detector is best** (all five on the same held-out defects, verdict), metric glossary, **confusion-matrix heat maps** of the deployed decisions, AUROC bars/ROC/heat map, per-defect-type decisions, qualitative heat maps, thresholds, latency |
 | 🎚️ **Threshold & cost** | The threshold trade-off priced in money; confusion matrix at your threshold; apply the cost-optimal threshold computed without real defects |
 | 🌗 **Drift & new lots** | Lighting/focus/camera simulation with the camera-health gate, 200-part stream with EWMA + PSI alarms, drift heat maps, **lot-shift test and live re-qualification** |
 | 🆕 **New product** | Few-shot onboarding of the metal nut from a handful of good images |
-| 📖 **Guide** | The complete guide (`docs/GUIDE.md`): every concept, model and parameter explained |
+| 📖 **Guide** | The complete guide (`docs/GUIDE.md`) + download of the complete HTML guide with flow diagrams |
 | 🎬 **Live demo** (last) | Inspect a part (upload / webcam / samples) with decision card, heat map, all detectors, VAE reconstruction · Batch · Review queue (human in the loop, audit log) · API |
 
 Images to upload during a demonstration, with their expected outcomes: [`demo_images/`](demo_images/README.md)
@@ -257,8 +260,26 @@ The Overview turns the deployed decisions into **one 8-hour shift** (2,500 parts
 inspectors per shift**; after, **1.4** (bottle 0.0, screw 0.1), against **25 inspectors** for 100% manual inspection, which
 still misses ~40 defects per shift. Details and sources: [`docs/GUIDE.md`](docs/GUIDE.md#10c-real-world-numbers-one-production-shift).
 
+## Which detector is best?
+
+All five detectors in the app's *Detector* menu were built from good parts only and calibrated the same label-free way:
+
+| detector | family | mean image AUROC | pixel AUROC | cost / 1,000 parts | verdict |
+|---|---|---|---|---|---|
+| **PatchCore** | memory bank of normal patches | **0.979** | 0.986 | **206 USD** | 🏆 best — deployed |
+| Ensemble (PatchCore + feature VAE) | combination | 0.978 | 0.987 | 215 USD | tie, but ~1.8× slower — not deployed |
+| Feature-space VAE | generative AI on backbone features | 0.899 | 0.978 | 1,137 USD | best generative model |
+| Pixel VAE (v1) | generative AI on pixels | 0.683 | 0.923 | 1,855 USD | superseded by the feature VAE |
+| Mean-image baseline | classical statistics | 0.562 | 0.778 | 1,930 USD | classical reference |
+
+Cost: expected cost per 1,000 parts at 1% defects at each detector's label-free threshold (qualification-lot models).
+The app shows the full table (per product, false rejects, escapes, CHECK share, speed) in 🧠 Models & training and
+📈 Results.
+
 ## Guide
 
+[`docs/DefectSpotter_Complete_Guide.html`](docs/DefectSpotter_Complete_Guide.html) is the complete, self-contained guide
+(27 chapters, flow diagrams, screenshots; rebuilt from the reports by `python scripts/build_guide.py`).
 [`docs/GUIDE.md`](docs/GUIDE.md) explains everything step by step: the problem, the data and split, the frozen
 ResNet-18 backbone (not fine-tuned, no head), PatchCore and the coreset, pose normalisation, both VAEs (concepts, every
 layer and parameter), synthetic and diffusion defects, calibration and the cost model, metrics, drift monitoring, lot

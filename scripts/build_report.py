@@ -17,7 +17,11 @@ sys.path.insert(0, str(ROOT))
 
 import numpy as np  # noqa: E402
 
+from types import SimpleNamespace  # noqa: E402
+
+from defectspotter.operations import LineScenario, shift_table  # noqa: E402
 from ui import charts  # noqa: E402
+from ui import explain as ex  # noqa: E402
 from ui.app import MONITORING_POLICY, _eda_insights  # noqa: E402
 from ui.store import ReportStore  # noqa: E402
 from ui.story import (cost_summary, data_html, hero_html, pipeline_html, problem_html, responsible_html,  # noqa: E402
@@ -104,14 +108,18 @@ def main() -> None:
          + grid(*[fig_html(charts.defect_types_chart(comp, c)) for c in categories], cols=3)
          + grid(*[img_html(store.figure(f"eda_montage_{c}.jpg"), f"{c}: good parts and every defect type") for c in categories], cols=3)
          + f"<div class='ds-card'>{markdown_table(_eda_insights(stats, comp))}</div>"),
-        ("results", "Results", results_html(store)
+        ("results", "Results", ex.detector_comparison_html(store, SimpleNamespace(categories=categories))
+         + results_html(store)
          + grid(fig_html(charts.metric_bars(metrics, "image_auroc", "Image AUROC")),
                 fig_html(charts.metric_bars(metrics, "pixel_auroc", "Pixel AUROC")))
          + grid(*[fig_html(charts.roc_chart(store.json("roc_curves.json"), c)) for c in categories], cols=3)
          + grid(*[fig_html(charts.method_scatter(store.json("scores.json"), c)) for c in categories], cols=3)
          + "".join(img_html(store.figure(f"qualitative_{c}.jpg"), f"{c}: input | ground truth | PatchCore | VAE | mean baseline",
                             "80%") for c in categories)),
-        ("thresholds", "Thresholds & cost", grid(fig_html(charts.threshold_dumbbell(thresholds, "patchcore")),
+        ("thresholds", "Thresholds & cost", ex.real_world_html()
+         + shift_table(ex.real_world_rows(store, SimpleNamespace(categories=categories)), LineScenario()).to_html(
+             index=False, classes="ds-table", border=0)
+         + grid(fig_html(charts.threshold_dumbbell(thresholds, "patchcore")),
                                                  fig_html(charts.threshold_dumbbell(thresholds, "vae")))
          + grid(fig_html(charts.cost_comparison(store.json("cost_model.json"), cs["ours"]))
                 if np.isfinite(cs["ours"]) else "",
