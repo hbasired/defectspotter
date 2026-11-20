@@ -4,7 +4,7 @@
     "screw",
     "carpet"
   ],
-  "created": "2026-11-19 22:23:49",
+  "created": "2026-11-20 03:16:10",
   "dataset": {
     "mirror": "foersben/mvtec-ad",
     "name": "MVTec AD",
@@ -12,17 +12,32 @@
   },
   "feature_extractor": {
     "backbone": "resnet18",
+    "dynamic_spatial": true,
     "feature_dim": 384,
     "grid": [
       28,
       28
     ],
+    "grids": {
+      "224": [
+        28,
+        28
+      ],
+      "288": [
+        36,
+        36
+      ]
+    },
     "image_size": 224,
-    "max_abs_error_vs_torch": 1.1920928955078125e-06,
+    "max_abs_error_vs_torch": 2.4437904357910156e-06,
     "opset": 17,
+    "outputs": {
+      "1": "patch_features_p1",
+      "3": "patch_features"
+    },
     "parameters": 2782784,
     "path": "feature_extractor.onnx",
-    "size_mb": 10.616175651550293,
+    "size_mb": 10.618054389953613,
     "verified": true
   },
   "map_size": 224,

@@ -7,5 +7,6 @@
   "manual_100pct_per_1000": 1099.9999999999998,
   "no_inspection_per_1000": 4000.0,
   "parts_per_day": 20000,
-  "review_capacity": 0.1
+  "review_capacity": 0.1,
+  "review_planning_share": 0.5
 }

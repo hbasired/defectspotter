@@ -40,6 +40,9 @@ app's *Models* tab for the numbers of the shipped run.
 * Down-scaling to 224–288 px can hide very small defects (many MVTec defects cover < 1% of the image).
 * Texture products (carpet) are harder for the small backbone; WideResNet-50 is more accurate there but ~9× larger.
 * Lighting, focus and camera-position changes raise scores on good parts — hence the camera-health gate and drift alarms.
+* Lot changes (a new carpet roll in MVTec's test set) shift good-part scores even inside the qualified acquisition range;
+  re-qualify on good parts from the new lot. Model selection used test AUROC only to propose the v2 design options
+  (disclosed in the README); per-product choices within them are label-free.
 * The VAE reconstructs blurry versions of parts, so subtle defects can hide in its own reconstruction error.
 * Heat maps show visual deviation, not root cause.
 

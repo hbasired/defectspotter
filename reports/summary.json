@@ -1,5 +1,5 @@
 {
-  "artifact_total_mb": 50.87,
+  "artifact_total_mb": 38.61,
   "backbone": "resnet18",
   "categories": [
     "bottle",
@@ -13,7 +13,8 @@
     "defect_prevalence": 0.01,
     "human_detection_rate": 0.8,
     "parts_per_day": 20000,
-    "review_capacity": 0.1
+    "review_capacity": 0.1,
+    "review_planning_share": 0.5
   },
   "feature_extractor_mb": 10.62,
   "few_shot_auroc": {
@@ -28,16 +29,16 @@
   },
   "image_size": 224,
   "latency_ms_median": {
-    "ensemble": 133.7,
-    "mean": 28.9,
-    "patchcore": 99.0,
-    "vae": 29.0
+    "ensemble": 133.1,
+    "mean": 35.0,
+    "patchcore": 73.0,
+    "vae": 30.0
   },
   "macro": {
     "ensemble": {
-      "aupro_30": 0.9179,
-      "image_auroc": 0.8908,
-      "pixel_auroc": 0.9837
+      "aupro_30": 0.9464,
+      "image_auroc": 0.9744,
+      "pixel_auroc": 0.9854
     },
     "mean": {
       "aupro_30": 0.5563,
@@ -45,9 +46,9 @@
       "pixel_auroc": 0.7778
     },
     "patchcore": {
-      "aupro_30": 0.9183,
-      "image_auroc": 0.9383,
-      "pixel_auroc": 0.9836
+      "aupro_30": 0.9464,
+      "image_auroc": 0.9744,
+      "pixel_auroc": 0.9854
     },
     "vae": {
       "aupro_30": 0.7497,
@@ -56,35 +57,64 @@
     }
   },
   "mean_abs_threshold_gap": {
-    "ensemble": 12.0,
-    "mean": 17.17,
-    "patchcore": 9.67,
-    "vae": 9.67
+    "ensemble": 1.5,
+    "mean": 23.67,
+    "patchcore": 1.5,
+    "vae": 19.83
   },
   "operating_default_policy": {
     "ensemble": {
-      "escape_rate": 0.1453,
-      "expected_cost_per_1000": 1301.6757,
-      "false_reject_rate": 0.3333,
-      "review_rate": 0.2016
+      "escape_rate": 0.0475,
+      "expected_cost_per_1000": 239.6718,
+      "false_reject_rate": 0.0,
+      "review_rate": 0.1661
     },
     "mean": {
-      "escape_rate": 0.0043,
-      "expected_cost_per_1000": 1882.6334,
-      "false_reject_rate": 0.9364,
-      "review_rate": 0.0384
+      "escape_rate": 0.1426,
+      "expected_cost_per_1000": 1929.9996,
+      "false_reject_rate": 0.6838,
+      "review_rate": 0.0187
     },
     "patchcore": {
-      "escape_rate": 0.0556,
-      "expected_cost_per_1000": 935.5346,
-      "false_reject_rate": 0.3333,
-      "review_rate": 0.1777
+      "escape_rate": 0.0475,
+      "expected_cost_per_1000": 239.6718,
+      "false_reject_rate": 0.0,
+      "review_rate": 0.1661
     },
     "vae": {
       "escape_rate": 0.0,
-      "expected_cost_per_1000": 1799.812,
-      "false_reject_rate": 0.8951,
-      "review_rate": 0.092
+      "expected_cost_per_1000": 1855.3846,
+      "false_reject_rate": 0.9259,
+      "review_rate": 0.0735
+    }
+  },
+  "patchcore_configs": {
+    "bottle": {
+      "bank_rotations": 1,
+      "blur_sigma": 4.0,
+      "coreset_ratio": 0.01,
+      "image_size": 224,
+      "pool_size": 1,
+      "score_mode": "max",
+      "topk_fraction": 0.01
+    },
+    "carpet": {
+      "bank_rotations": 1,
+      "blur_sigma": 2.0,
+      "coreset_ratio": 0.01,
+      "image_size": 224,
+      "pool_size": 1,
+      "score_mode": "topk",
+      "topk_fraction": 0.05
+    },
+    "screw": {
+      "bank_rotations": 1,
+      "blur_sigma": 4.0,
+      "coreset_ratio": 0.01,
+      "image_size": 288,
+      "pool_size": 1,
+      "score_mode": "topk",
+      "topk_fraction": 0.01
     }
   }
 }

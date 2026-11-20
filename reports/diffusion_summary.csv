@@ -1,3 +1,37 @@
 category,synthetic_type,prompt,mask_area_pct,mean_change_in_mask,seconds
-bottle,diffusion_cutpaste,"a broken glass fragment lying on the rim of a glass bottle, top view, industrial inspection photo",0.7582716049382716,31.8,18.1
-bottle,diffusion_scratch,"a crack and a chipped broken edge on the rim of a glass bottle, top view, industrial inspection photo",1.0534567901234568,4.2,19.3
+bottle,diffusion_cutpaste,"a broken glass fragment lying on the rim of a glass bottle, top view, industrial inspection photo",0.7582716049382716,31.8,17.7
+bottle,diffusion_cutpaste,"a broken glass fragment lying on the rim of a glass bottle, top view, industrial inspection photo",0.6688888888888889,31.4,17.6
+bottle,diffusion_cutpaste,"a broken glass fragment lying on the rim of a glass bottle, top view, industrial inspection photo",0.3148148148148148,16.5,17.4
+bottle,diffusion_cutpaste,"a broken glass fragment lying on the rim of a glass bottle, top view, industrial inspection photo",0.5891358024691358,19.2,17.5
+bottle,diffusion_cutpaste,"a broken glass fragment lying on the rim of a glass bottle, top view, industrial inspection photo",0.8877777777777778,37.7,17.2
+bottle,diffusion_scratch,"a crack and a chipped broken edge on the rim of a glass bottle, top view, industrial inspection photo",1.0534567901234568,8.8,16.8
+bottle,diffusion_scratch,"a crack and a chipped broken edge on the rim of a glass bottle, top view, industrial inspection photo",0.6875308641975308,34.6,17.3
+bottle,diffusion_scratch,"a crack and a chipped broken edge on the rim of a glass bottle, top view, industrial inspection photo",0.9653086419753086,27.0,16.9
+bottle,diffusion_scratch,"a crack and a chipped broken edge on the rim of a glass bottle, top view, industrial inspection photo",1.1133333333333333,4.7,17.0
+bottle,diffusion_scratch,"a crack and a chipped broken edge on the rim of a glass bottle, top view, industrial inspection photo",0.7337037037037036,23.0,17.0
+bottle,diffusion_stain,"dirty brown debris contamination inside a glass bottle, top view, industrial inspection photo",4.400740740740741,9.9,17.0
+bottle,diffusion_stain,"dirty brown debris contamination inside a glass bottle, top view, industrial inspection photo",0.6540740740740741,12.5,17.2
+carpet,diffusion_cutpaste,"a misplaced patch of different carpet fabric, close-up photo",1.1730194091796875,46.2,17.8
+carpet,diffusion_cutpaste,"a misplaced patch of different carpet fabric, close-up photo",2.23846435546875,45.3,17.3
+carpet,diffusion_cutpaste,"a misplaced patch of different carpet fabric, close-up photo",3.640937805175781,44.0,17.4
+carpet,diffusion_cutpaste,"a misplaced patch of different carpet fabric, close-up photo",1.2462615966796875,45.5,17.2
+carpet,diffusion_cutpaste,"a misplaced patch of different carpet fabric, close-up photo",1.971435546875,39.7,17.6
+carpet,diffusion_scratch,"a torn cut and a loose pulled thread in woven carpet fabric, close-up photo",1.0117530822753906,21.1,17.5
+carpet,diffusion_scratch,"a torn cut and a loose pulled thread in woven carpet fabric, close-up photo",1.026630401611328,19.1,17.0
+carpet,diffusion_scratch,"a torn cut and a loose pulled thread in woven carpet fabric, close-up photo",0.5338668823242188,17.4,17.0
+carpet,diffusion_scratch,"a torn cut and a loose pulled thread in woven carpet fabric, close-up photo",1.0374069213867188,22.4,16.9
+carpet,diffusion_scratch,"a torn cut and a loose pulled thread in woven carpet fabric, close-up photo",1.1655807495117188,22.1,16.9
+carpet,diffusion_stain,"a dark wine stain soaked into carpet fabric, close-up photo",2.2031784057617188,21.0,16.7
+carpet,diffusion_stain,"a dark wine stain soaked into carpet fabric, close-up photo",2.9410362243652344,25.4,16.5
+screw,diffusion_cutpaste,"a deformed damaged thread on a steel screw, macro inspection photo",0.6136894226074219,32.0,17.3
+screw,diffusion_scratch,"a deep scratch and a dented damaged thread on a steel screw, macro inspection photo",0.3543853759765625,22.7,19.4
+screw,diffusion_stain,"a rust stain and corrosion spot on a steel screw, macro inspection photo",1.2282371520996094,16.9,17.5
+screw,diffusion_cutpaste,"a deformed damaged thread on a steel screw, macro inspection photo",3.689002990722656,51.9,17.4
+screw,diffusion_scratch,"a deep scratch and a dented damaged thread on a steel screw, macro inspection photo",0.5377769470214844,16.6,16.5
+screw,diffusion_stain,"a rust stain and corrosion spot on a steel screw, macro inspection photo",1.4277458190917969,30.1,16.8
+screw,diffusion_cutpaste,"a deformed damaged thread on a steel screw, macro inspection photo",1.052570343017578,42.0,16.8
+screw,diffusion_scratch,"a deep scratch and a dented damaged thread on a steel screw, macro inspection photo",0.5822181701660156,51.8,17.2
+screw,diffusion_stain,"a rust stain and corrosion spot on a steel screw, macro inspection photo",1.6386985778808594,26.7,16.9
+screw,diffusion_cutpaste,"a deformed damaged thread on a steel screw, macro inspection photo",2.012920379638672,52.9,16.8
+screw,diffusion_scratch,"a deep scratch and a dented damaged thread on a steel screw, macro inspection photo",0.4292488098144531,34.9,17.0
+screw,diffusion_stain,"a rust stain and corrosion spot on a steel screw, macro inspection photo",1.7558097839355469,32.6,17.2
