@@ -243,7 +243,8 @@ class Pipeline:
             if out.exists():
                 shutil.rmtree(out)
             for stale in [*(self.cfg.work / "features").glob(f"{category}_*_s[ye][nv].npz"),  # syn / sev caches
-                          self.cfg.work / "scores" / f"patchcore_{category}_search.json"]:
+                          self.cfg.work / "scores" / f"patchcore_{category}_search.json",
+                          self.cfg.work / "scores" / f"vae_{category}_done.json"]:
                 stale.unlink(missing_ok=True)
             manifest = generate_synthetic_set([self.abs(p) for p in good.image_path], category, out,
                                               per_image=self.cfg.synthetic_per_image, seed=self.cfg.seed)
@@ -458,6 +459,15 @@ class Pipeline:
                                base_channels=self.cfg.vae_base_channels, epochs=self.cfg.vae_epochs,
                                hflip=category != "screw",  # flipping a screw changes thread handedness
                                rot90=True if texture or category in {"bottle", "screw", "metal_nut"} else False)
+            # Resumable per product: skip a model already trained with the same configuration.
+            done = self.cfg.work / "scores" / f"vae_{category}_done.json"
+            signature = json.dumps({**config.to_dict(), "seed": self.cfg.seed, "n_train": len(train)}, sort_keys=True)
+            if (done.exists() and load_json(done, {}).get("signature") == signature
+                    and (self.cfg.artifacts / category / "vae.onnx").exists()
+                    and (self.cfg.work / "scores" / f"vae_{category}.npz").exists()):
+                rows.extend(load_json(done)["history"])
+                self.log(f"  {category}: VAE already trained with this configuration - reusing it")
+                continue
             self.log(f"  training VAE for {category} on {len(fit_items)} good images")
             model = train_vae(fit_items, val_items, config, seed=self.cfg.seed, device=self.cfg.device,
                               progress=lambda r: self.log(f"    epoch {r['epoch']:3d} train={r['train_loss']:.4f} "
@@ -486,6 +496,7 @@ class Pipeline:
                 payload[f"{name}_maps"] = np.stack(maps).astype(np.float16)
             self._save_scores("vae", category, payload)
             save_json(payload_onnx, self.cfg.work / "scores" / f"vae_{category}_onnx.json")
+            save_json({"signature": signature, "history": [{"category": category, **r} for r in config.history]}, done)
         pd.DataFrame(rows).to_csv(self.cfg.reports / "vae_training_history.csv", index=False)
 
     # ---------------------------------------------------------------- mean

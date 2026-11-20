@@ -104,10 +104,10 @@ def main() -> None:
 
     pipe = load_pipeline(args.device)
     gallery = ROOT / "examples" / "diffusion"
-    if gallery.exists():
-        for old_file in gallery.glob("*.jpg"):
-            old_file.unlink()
     gallery.mkdir(parents=True, exist_ok=True)
+    for category in args.categories:  # only this run's products: the script can run one product at a time
+        for old_file in gallery.glob(f"{category}_*.jpg"):
+            old_file.unlink()
     for category in args.categories:
         out = Path(args.work_dir) / "diffusion" / category
         (out / "images").mkdir(parents=True, exist_ok=True)
@@ -150,7 +150,8 @@ def main() -> None:
                     gallery / f"{category}_diffusion_{kind}_{k}.jpg", quality=92)
             print(f"{category} {k + 1}/{len(picks)} {kind}: {rows[-1]['seconds']}s, mean change in mask {change:.1f}", flush=True)
         pd.DataFrame(rows).to_csv(out / "manifest.csv", index=False)
-    summary = pd.concat([pd.read_csv(Path(args.work_dir) / "diffusion" / c / "manifest.csv") for c in args.categories])
+    manifests = sorted((Path(args.work_dir) / "diffusion").glob("*/manifest.csv"))  # every product generated so far
+    summary = pd.concat([pd.read_csv(m) for m in manifests])
     summary[["category", "synthetic_type", "prompt", "mask_area_pct", "mean_change_in_mask", "seconds"]].to_csv(
         ROOT / "reports" / "diffusion_summary.csv", index=False)
 
