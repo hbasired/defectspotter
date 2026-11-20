@@ -88,13 +88,21 @@ If you prefer to version models separately, upload `artifacts/`, `reports/` and 
 | Build error | open the Space build logs; the Space requirements are written by `deploy_hf.py` |
 | Webcam does not start | the page must be served over HTTPS (Spaces are) and the browser must allow camera access |
 
-## 4 · Can Claude deploy it?
+## 4 · Can Claude deploy it? Can the backend run "in Claude"?
 
-* **Hugging Face Space** — yes, from a Claude Code session: you provide a write token through the secure credential form
-  (never in chat); Claude runs `scripts/deploy_hf.py` and returns the Space URL.
-* **Claude Artifact** — Claude can also publish a static web page on claude.ai (private by default, shareable by link).
-  It can host the project presentation; it cannot run the Python backend, so the live inspection stays on the Space (or
-  would have to be ported to ONNX Runtime Web in the browser).
+Verified in a Claude Code cloud session (November 2026):
+
+* **Hugging Face Space — yes, and this is the frontend URL.** You save a write token once through the secure credential
+  form (never in chat); Claude runs `scripts/deploy_hf.py`, waits for the build, smoke-tests `/inspect_part` and `/health`
+  through the API and returns `https://huggingface.co/spaces/bhkr0901/defectspotter`. Ask Claude at any time to redeploy
+  (after retraining or a code change), check the Space status or run test inspections against it.
+* **Backend inside the Claude session — only privately.** Claude can start `python app.py` inside its sandbox and use it
+  (API calls, automated tests, screenshots), but the sandbox accepts no inbound connections and blocks tunnels such as
+  `--share` (gradio.live), so it cannot give you a public URL to that process, and the process stops when the session's
+  container is recycled. The Space is the always-on backend + frontend.
+* **Claude Artifact** — Claude can publish a static web page on claude.ai (private by default, shareable by link). It can
+  host the project presentation/report; it cannot run the Python backend, so live inspection stays on the Space (or would
+  have to be ported to ONNX Runtime Web in the browser).
 
 ## 5 · Production boundary
 

@@ -5,7 +5,8 @@
 **PASS / CHECK / REJECT** decision for the quality inspector at the end of the line — cutting both missed defects
 (escapes) and false rejects.
 
-* **Live app:** Gradio dashboard (`python app.py`) — deployable to a free Hugging Face ZeroGPU Space with one command.
+* **Live app:** https://huggingface.co/spaces/bhkr0901/defectspotter (direct: https://bhkr0901-defectspotter.hf.space) —
+  the same Gradio dashboard runs locally with `python app.py`.
 * **Notebook:** [`DefectSpotter_End_to_End_Colab_HUGGINGFACE.ipynb`](DefectSpotter_End_to_End_Colab_HUGGINGFACE.ipynb) — EDA → training → evaluation → dashboard → deployment.
 * **Data:** MVTec AD (bottle, screw, carpet; metal nut for few-shot onboarding) — CC BY-NC-SA 4.0, research/teaching only.
 
@@ -33,8 +34,8 @@ The global controls (product, detector, **threshold**, **CHECK band**) apply to 
 
 ```mermaid
 flowchart LR
-  A[Good parts only] --> B[Frozen ResNet-18<br/>layer2+3 patch features<br/>ONNX ~11 MB]
-  B --> C[Greedy coreset<br/>memory bank fp16]
+  A[Good parts only] --> B[Frozen ResNet-18<br/>layer2+3 patch features<br/>ONNX ~11 MB, 2 outputs]
+  B --> C[Per-product recipe<br/>size · 3x3/raw · rotations<br/>greedy coreset bank fp16]
   A --> V[Convolutional VAE<br/>L1+SSIM, ONNX]
   A --> M[ECC-aligned<br/>mean good image]
   P[Held-out good parts] --> S[Synthetic defects<br/>cut-paste · scratch · stain<br/>+ SD inpainting]
@@ -48,11 +49,14 @@ flowchart LR
   D --> R[Camera-health gate + EWMA/PSI drift alarms]
 ```
 
-1. **PatchCore-style detector (primary).** A frozen ImageNet ResNet-18 (`layer2` + `layer3`, 3×3 local averaging) turns
-   every image into a 28×28 grid of 384-d patch descriptors. All good training patches form a memory bank compressed by
-   **greedy k-center coreset selection** (keeps rare-but-normal patches that random sampling would drop). A test patch's
-   distance to its nearest normal patch is its anomaly; the map is upsampled and smoothed, the image score is the max /
-   top-k mean.
+1. **PatchCore-style detector (primary).** A frozen ImageNet ResNet-18 (`layer2` + `layer3`) turns every image into a
+   grid of 384-d patch descriptors. One shared ONNX file (≈11 MB, dynamic resolution) outputs both the PatchCore **3×3
+   neighbourhood average** and the **raw descriptors**. Each product gets its own recipe, chosen label-free: input
+   resolution (224 / 288 px), 3×3 vs raw descriptors (raw keeps fine weave detail on carpet) and, for objects that arrive in
+   any orientation, **90°-rotated good parts in the bank** (rotations keep a screw's thread handedness; flips would not).
+   All good training patches form a memory bank compressed by **greedy k-center coreset selection** (keeps
+   rare-but-normal patches that random sampling would drop). A test patch's distance to its nearest normal patch is its
+   anomaly; the map is upsampled and smoothed, the image score is the max / top-k mean.
 2. **Convolutional VAE (Generative AI).** Trained on good parts (L1 + SSIM + β·KL, 128-d latent). Reconstruction error
    (pixel + structural) is a second, independent detector, compared head-to-head with PatchCore.
 3. **Classical baseline.** ECC alignment (translation / rigid / affine chosen on synthetic data) to a median good reference,
@@ -66,7 +70,9 @@ flowchart LR
    (25 = typical good, 75 = typical synthetic defect), tune hyper-parameters label-free and pick the **cost-optimal
    three-way thresholds**. Real defects are used only to measure how far that threshold is from an oracle chosen with labels.
 5. **Decisions with economics.** `PASS < t − b ≤ CHECK < t + b ≤ REJECT`; `(t, b)` minimise
-   `(1−p)·FRR·C_false_reject + p·escape·C_escape + review·C_check` with inspector capacity ≤ 10% of parts.
+   `(1−p)·FRR·C_false_reject + p·escape·C_escape + review·C_check` with inspector capacity ≤ 10% of parts. The rates are
+   estimated on kernel-smoothed score distributions: with ~50 held-out good parts an empirical false-reject rate moves in
+   2% steps and the optimum would snap to single samples.
 6. **Responsible operation.** No automatic decision on images outside the qualified acquisition range (brightness /
    contrast / focus z-scores) — they go to CHECK; EWMA control charts and PSI on the score stream and camera-health
    signals raise drift alarms; every CHECK is decided and logged by a human.
@@ -85,6 +91,8 @@ flowchart LR
 | Diffusion defects disabled by default and never compared | SD-1.5 SDEdit refinement of procedural defects (CPU-feasible with LCM-LoRA), capability-checked and compared with real defects |
 | Thresholds set by conspicuous synthetic defects only (first run: 35% screw escapes) | detection-limit calibration: synthetic defects replayed at 25/50/100% severity; v1 kept for comparison |
 | No human review workflow | review queue + audit log; ground truth shown on samples |
+| v1: one fixed recipe (224 px, 3×3 averaging) for every product — carpet AUROC 0.88, screw 0.93 | **v2:** per-product label-free search over resolution, 3×3 vs raw descriptors and rotation-augmented banks; subtle (50%) synthetic defects join the selection objective |
+| v1: default thresholds from raw counts on ~50 good parts; reports from mixed runs (FRR up to 100% on carpet) | **v2:** smoothed cost optimum, one shared recipe for pipeline and app, single consistent run; ensemble weight chosen on subtle defects (v1 ensemble was below PatchCore on screw) |
 | Dual-axis charts, dark hero | single-axis charts, colour-blind-validated palette, light theme |
 | ZeroGPU claim without `@spaces.GPU` | ZeroGPU-compatible entry point; deployment script with clear free-tier rules |
 
@@ -105,12 +113,12 @@ so the app works immediately after cloning. Python 3.10–3.13.
 ```bash
 pip install -r requirements-train.txt
 python scripts/download_data.py --dest data/mvtec_ad                 # pinned HF mirror of MVTec AD (1.3 GB)
-python scripts/train.py --data data/mvtec_ad                         # ~1 h on a 4-core CPU, ~15 min on a GPU
+python scripts/train.py --data data/mvtec_ad --vae-epochs 120        # ~2 h on a 4-core CPU, ~25 min on a GPU
 pip install -r requirements-diffusion.txt                            # optional GenAI defects
 python scripts/generate_diffusion_defects.py --data data/mvtec_ad
 python scripts/train.py --data data/mvtec_ad --stages severity diffusion calibrate evaluate drift summary
 python scripts/backbone_study.py --data data/mvtec_ad                # optional, ~25 min on CPU
-pip install -r requirements-dev.txt && pytest                        # 26 tests
+pip install -r requirements-dev.txt && pytest                        # unit + integration tests (also run by CI)
 ```
 
 ### Deploy (Hugging Face, free ZeroGPU tier)
@@ -145,7 +153,7 @@ artifacts/                  ONNX feature extractor + per-product memory bank, VA
 reports/                    every metric/table/figure the app and README show (CSV/JSON/PNG)
 examples/                   down-scaled MVTec test images (CC BY-NC-SA 4.0) for the demo
 docs/                       model card, data card, screenshots
-tests/                      unit + integration tests
+tests/                      unit + integration tests (GitHub Actions: .github/workflows/tests.yml)
 ```
 
 ## Responsible AI and limitations
